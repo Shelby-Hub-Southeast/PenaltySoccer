@@ -7,6 +7,26 @@ Version Numbering
 ``penaltyblog`` follows the SemVer versioning guidelines. For more information,
 see `semver.org <http://semver.org/>`_
 
+v1.10.0 (2026-03-20)
+^^^^^^^^^^^^^^^^^^^^
+
+* **New Features**
+
+  * Added a bundled pre-trained xT model, available via ``penaltyblog.xt.load_pretrained_xt()``, based on the linear algebra expected threat methodology described in the January 8, 2025 blog post.
+
+* **Performance**
+
+  * Added ``predict_many()`` to goal models for batch fixture predictions with shared validation and indexing.
+  * Added optional batch fast-path hook ``_compute_probabilities_many()`` for model-specific optimizations.
+  * Implemented batch fast-paths for Poisson, Dixon-Coles, Bivariate Poisson, Zero-Inflated Poisson, Negative Binomial, and Weibull Copula models.
+  * Added analytical derivatives for Weibull Copula NLL gradients shape and kappa parameters giving 4x speedup for this model.
+  * Documentation now available via Context7 MCP.
+
+* **Testing**
+
+  * Added unit tests covering ``predict_many()`` behavior and parity with ``predict()`` for the affected models.
+
+
 v1.9.0 (2026-02-28)
 ^^^^^^^^^^^^^^^^^^^^
 

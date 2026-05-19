@@ -28,14 +28,14 @@ cdef double epsilon = 1e-9
 @cython.cdivision(True)
 @cython.nonecheck(False)
 @cython.initializedcheck(False)
-def poisson_loss_function(long[:] goals_home,
-                          long[:] goals_away,
-                          np.float64_t[:] weights,
-                          long[:] home_indices,
-                          long[:] away_indices,
-                          np.float64_t[:] attack,
-                          np.float64_t[:] defence,
-                          double hfa) -> double:
+cpdef double poisson_loss_function(long[:] goals_home,
+                                   long[:] goals_away,
+                                   np.float64_t[:] weights,
+                                   long[:] home_indices,
+                                   long[:] away_indices,
+                                   np.float64_t[:] attack,
+                                   np.float64_t[:] defence,
+                                   double hfa):
     """
     Computes the negative log-likelihood for a Dixon–Coles model.
 
