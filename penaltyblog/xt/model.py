@@ -230,6 +230,17 @@ class XTModel:
     def __post_init__(self) -> None:
         if self.n_cols <= 0 or self.n_rows <= 0:
             raise ValueError("n_cols and n_rows must be positive integers")
+        try:
+            smoothing_k = float(self.transition_smoothing_k)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "transition_smoothing_k must be a finite non-negative number"
+            ) from exc
+        if not np.isfinite(smoothing_k) or smoothing_k < 0:
+            raise ValueError(
+                "transition_smoothing_k must be a finite non-negative number"
+            )
+        self.transition_smoothing_k = smoothing_k
         if self.coord_policy not in {"warn", "error", "clip"}:
             raise ValueError("coord_policy must be one of: 'warn', 'error', 'clip'")
 

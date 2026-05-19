@@ -172,6 +172,33 @@ def test_xtdata_rejects_invalid_coordinate_range():
         )
 
 
+def test_xtdata_rejects_non_numeric_coordinate_values():
+    df = pd.DataFrame(
+        {
+            "x": ["oops"],
+            "y": [20],
+            "end_x": [30],
+            "end_y": [40],
+            "event_type": ["pass"],
+            "is_success": [True],
+        }
+    )
+    data = XTData(
+        events=df,
+        x="x",
+        y="y",
+        event_type="event_type",
+        end_x="end_x",
+        end_y="end_y",
+        is_success="is_success",
+    )
+
+    with pytest.raises(
+        ValueError, match="schema normalization requires numeric values in column 'x'"
+    ):
+        _ = data.df
+
+
 def test_xtdata_map_events():
     df = pd.DataFrame(
         {
@@ -802,6 +829,23 @@ def test_fit_accepts_raw_dataframe():
     assert model.surface_.shape == (1, 2)
 
 
+def test_fit_rejects_non_numeric_coordinate_values():
+    df = pd.DataFrame(
+        {
+            "x": ["oops", 90],
+            "y": [10, 10],
+            "end_x": [90, np.nan],
+            "end_y": [10, np.nan],
+            "event_type": ["pass", "shot"],
+            "is_success": [True, True],
+        }
+    )
+    with pytest.raises(
+        ValueError, match="schema normalization requires numeric values in column 'x'"
+    ):
+        XTModel(n_cols=2, n_rows=1).fit(df)
+
+
 def test_fit_accepts_matchflow_flow():
     flow = Flow.from_records(simple_pass_shot_df().to_dict(orient="records"))
     model = XTModel(n_cols=2, n_rows=1).fit(flow)
@@ -1007,15 +1051,49 @@ def test_load_corrupted_npz_missing_arrays(tmp_path):
 
     # load_xt_npz should raise ValueError (not KeyError)
     with pytest.raises(
-        ValueError, match="Invalid xT model artifact.*missing required array"
+        ValueError, match="Invalid xT model artifact.*missing required arrays"
     ):
         load_xt_npz(str(corrupted_path))
 
     # XTModel.load should also raise ValueError (not KeyError) as promised in docstring
     with pytest.raises(
-        ValueError, match="Invalid xT model artifact.*missing required array"
+        ValueError, match="Invalid xT model artifact.*missing required arrays"
     ):
         XTModel.load(str(corrupted_path))
+
+
+def test_load_corrupted_npz_invalid_metadata_json(tmp_path):
+    from penaltyblog.xt.io import load_xt_npz
+
+    corrupted_path = tmp_path / "bad_meta_json.npz"
+    np.savez(
+        str(corrupted_path),
+        meta_json=np.array(["not-json"]),
+        surface=np.zeros((1, 1)),
+        shot_probability=np.zeros((1, 1)),
+        goal_probability=np.zeros((1, 1)),
+        move_probability=np.zeros((1, 1)),
+        transition_matrix=np.zeros((1, 1)),
+    )
+
+    with pytest.raises(ValueError, match="metadata is not valid JSON"):
+        load_xt_npz(str(corrupted_path))
+
+    with pytest.raises(ValueError, match="metadata is not valid JSON"):
+        XTModel.load(str(corrupted_path))
+
+
+def test_load_rejects_non_npz_file(tmp_path):
+    from penaltyblog.xt.io import load_xt_npz
+
+    bad_path = tmp_path / "not_a_model.npz"
+    bad_path.write_text("hello world")
+
+    with pytest.raises(ValueError, match="Invalid xT model artifact"):
+        load_xt_npz(str(bad_path))
+
+    with pytest.raises(ValueError, match="Invalid xT model artifact"):
+        XTModel.load(str(bad_path))
 
 
 # ---------------------------------------------------------------------------
@@ -1068,6 +1146,12 @@ def test_invalid_grid_size():
 def test_invalid_coord_policy():
     with pytest.raises(ValueError, match="coord_policy"):
         XTModel(coord_policy="invalid")
+
+
+@pytest.mark.parametrize("value", [-1, float("nan"), float("inf"), "oops"])
+def test_invalid_transition_smoothing_k(value):
+    with pytest.raises(ValueError, match="transition_smoothing_k"):
+        XTModel(transition_smoothing_k=value)
 
 
 def test_score_before_fit_raises():

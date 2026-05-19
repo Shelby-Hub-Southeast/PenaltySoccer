@@ -10,6 +10,10 @@ see `semver.org <http://semver.org/>`_
 v1.10.0 (2026-03-20)
 ^^^^^^^^^^^^^^^^^^^^
 
+* **New Features**
+
+  * Added a bundled pre-trained xT model, available via ``penaltyblog.xt.load_pretrained_xt()``, based on the linear algebra expected threat methodology described in the January 8, 2025 blog post.
+
 * **Performance**
 
   * Added ``predict_many()`` to goal models for batch fixture predictions with shared validation and indexing.

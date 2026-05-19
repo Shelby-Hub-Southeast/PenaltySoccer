@@ -71,7 +71,26 @@ def load_xt_npz(path: str) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     """Load xT model arrays and metadata from an ``.npz`` artifact."""
     try:
         with np.load(path, allow_pickle=False) as npz:
-            meta_json = str(npz["meta_json"][0])
+            required = {
+                "surface",
+                "shot_probability",
+                "goal_probability",
+                "move_probability",
+                "transition_matrix",
+                "meta_json",
+            }
+            missing = sorted(required.difference(npz.files))
+            if missing:
+                missing_str = ", ".join(repr(name) for name in missing)
+                raise ValueError(
+                    f"Invalid xT model artifact: missing required arrays {missing_str}"
+                )
+
+            meta_array = npz["meta_json"]
+            if meta_array.size == 0:
+                raise ValueError("Invalid xT model artifact: meta_json is empty")
+
+            meta_json = str(meta_array.flat[0])
             metadata = _restore_json_value(json.loads(meta_json))
             arrays = {
                 "surface": npz["surface"],
@@ -80,8 +99,14 @@ def load_xt_npz(path: str) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
                 "move_probability": npz["move_probability"],
                 "transition_matrix": npz["transition_matrix"],
             }
-    except KeyError as e:
-        raise ValueError(
-            f"Invalid xT model artifact: missing required array '{e.args[0]}'"
-        ) from e
+    except FileNotFoundError:
+        raise
+    except json.JSONDecodeError as e:
+        raise ValueError("Invalid xT model artifact: metadata is not valid JSON") from e
+    except ValueError as e:
+        if str(e).startswith("Invalid xT model artifact:"):
+            raise
+        raise ValueError(f"Invalid xT model artifact: {e}") from e
+    except (OSError, TypeError, IndexError) as e:
+        raise ValueError(f"Invalid xT model artifact: {e}") from e
     return arrays, metadata

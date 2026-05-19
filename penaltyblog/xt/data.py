@@ -20,8 +20,18 @@ def _validate_range(name: str, value: tuple[float, float]) -> None:
         raise ValueError(f"{name} must be an increasing tuple (min, max)")
 
 
-def _scale_to_100(series: pd.Series, low: float, high: float) -> pd.Series:
-    numeric = pd.to_numeric(series, errors="coerce")
+def _scale_to_100(series: pd.Series, low: float, high: float, column: str) -> pd.Series:
+    try:
+        numeric = pd.to_numeric(series, errors="raise")
+    except Exception as exc:
+        coerced = pd.to_numeric(series, errors="coerce")
+        invalid = series[series.notna() & coerced.isna()]
+        preview_vals = list(dict.fromkeys(repr(v) for v in invalid))[:5]
+        preview = ", ".join(preview_vals) if preview_vals else "<unknown>"
+        raise ValueError(
+            f"xT schema normalization requires numeric values in column {column!r}. "
+            f"Invalid values: {preview}"
+        ) from exc
     return (numeric - low) * 100.0 / (high - low)
 
 
@@ -245,10 +255,10 @@ class XTData:
 
         x_low, x_high = self.x_range
         y_low, y_high = self.y_range
-        result["x"] = _scale_to_100(result["x"], x_low, x_high)
-        result["end_x"] = _scale_to_100(result["end_x"], x_low, x_high)
-        result["y"] = _scale_to_100(result["y"], y_low, y_high)
-        result["end_y"] = _scale_to_100(result["end_y"], y_low, y_high)
+        result["x"] = _scale_to_100(result["x"], x_low, x_high, column="x")
+        result["end_x"] = _scale_to_100(result["end_x"], x_low, x_high, column="end_x")
+        result["y"] = _scale_to_100(result["y"], y_low, y_high, column="y")
+        result["end_y"] = _scale_to_100(result["end_y"], y_low, y_high, column="end_y")
 
         return result
 
