@@ -1,8 +1,8 @@
 """Expected Threat (xT) models."""
 
-from .data import XTData, XTEventSchema
 from .model import XTModel
 from .pretrained import load_pretrained_xt
+from .schema import XTData, XTEventSchema
 
 __all__ = [
     "XTModel",

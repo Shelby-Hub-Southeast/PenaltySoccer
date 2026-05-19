@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING, Optional, Union
 import numpy as np
 import pandas as pd
 
-from .data import XTData, XTEventSchema
 from .io import load_xt_npz, save_xt_npz
 from .plotting import plot_xt_surface
+from .schema import XTData, XTEventSchema
 
 if TYPE_CHECKING:
     from ..matchflow.flow import Flow
@@ -429,12 +429,26 @@ class XTModel:
         # Classify events
         role = self._classify_events(df)
 
+        if (role == "move").any() and (xt_data.end_x is None or xt_data.end_y is None):
+            raise ValueError(
+                "xT fit requires move end coordinates when move events are present. "
+                "Provide end_x/end_y columns or set schema=XTEventSchema(end_x=..., end_y=...) "
+                "to map your provider's move destination fields."
+            )
+
         # is_success: for moves means completed, for shots means goal
         success_flags = _coerce_bool(df["is_success"])
 
         # Build masks
         valid_start = df["x"].notna() & df["y"].notna()
         valid_end = df["end_x"].notna() & df["end_y"].notna()
+        successful_move_rows = (role == "move") & success_flags
+        missing_successful_end = successful_move_rows & ~valid_end
+        if missing_successful_end.any():
+            raise ValueError(
+                "xT fit requires end_x/end_y for successful move events. "
+                "Found successful moves with missing destination coordinates."
+            )
 
         shot_mask = (role == "shot") & valid_start
         goal_mask = shot_mask & success_flags

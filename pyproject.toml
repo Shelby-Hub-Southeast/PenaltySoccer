@@ -72,7 +72,7 @@ penaltyblog = [
     "metrics/*.so",
     "metrics/*.dll",
     "metrics/*.dylib",
-    "xt/data/*.npz",
+    "xt/artifacts/*.npz",
 ]
 
 [project.optional-dependencies]

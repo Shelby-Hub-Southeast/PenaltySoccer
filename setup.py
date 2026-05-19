@@ -1,10 +1,12 @@
 # setup.py
 import glob
 import os
+from pathlib import Path
 
 import numpy as np
 from Cython.Build import cythonize
 from setuptools import Extension, find_packages, setup
+from setuptools.command.build_py import build_py as _build_py
 
 
 def find_pyx_files(package, subdir):
@@ -55,6 +57,22 @@ for pyx_path in bayes_pyx:
         )
     )
 
+
+class build_py(_build_py):
+    """Remove stale xT files from reused build directories."""
+
+    def run(self):
+        super().run()
+
+        stale_paths = [
+            Path(self.build_lib) / "penaltyblog" / "xt" / "data.py",
+            Path(self.build_lib) / "penaltyblog" / "xt" / "data" / "xt_default_v1.npz",
+        ]
+        for stale_path in stale_paths:
+            if stale_path.exists():
+                stale_path.unlink()
+
+
 setup(
     name="penaltyblog",
     version="1.5.0",
@@ -63,6 +81,7 @@ setup(
         include=["penaltyblog", "penaltyblog.*"],
         exclude=["penaltyblog.test", "penaltyblog.docs"],
     ),
+    cmdclass={"build_py": build_py},
     ext_modules=cythonize(extensions, compiler_directives={"language_level": "3"}),
     install_requires=[
         "beautifulsoup4",

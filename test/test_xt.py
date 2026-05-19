@@ -1,4 +1,5 @@
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -6,6 +7,7 @@ import plotly.graph_objects as go
 import pytest
 
 import penaltyblog as pb
+import penaltyblog.xt.data as xt_data_module
 from penaltyblog.matchflow import Flow
 from penaltyblog.viz.pitch import Pitch
 from penaltyblog.xt import (
@@ -1184,6 +1186,19 @@ def test_fit_empty_dataset_raises():
         XTModel(n_cols=2, n_rows=1).fit(data)
 
 
+def test_fit_missing_move_end_coordinate_columns_raises():
+    df = pd.DataFrame(
+        {
+            "x": [10, 90],
+            "y": [10, 10],
+            "event_type": ["pass", "shot"],
+            "is_success": [True, True],
+        }
+    )
+    with pytest.raises(ValueError, match="requires move end coordinates"):
+        XTModel(n_cols=2, n_rows=1).fit(df)
+
+
 def test_load_rejects_invalid_grid_metadata(tmp_path):
     path = tmp_path / "bad_xt.npz"
     np.savez(
@@ -1211,6 +1226,21 @@ def test_fit_missing_is_success_raises():
         }
     )
     with pytest.raises(ValueError, match="Missing success information"):
+        XTModel(n_cols=2, n_rows=1).fit(df)
+
+
+def test_fit_successful_move_missing_destination_raises():
+    df = pd.DataFrame(
+        {
+            "x": [10, 90],
+            "y": [10, 10],
+            "end_x": [np.nan, np.nan],
+            "end_y": [10, np.nan],
+            "event_type": ["pass", "shot"],
+            "is_success": [True, True],
+        }
+    )
+    with pytest.raises(ValueError, match="successful move events"):
         XTModel(n_cols=2, n_rows=1).fit(df)
 
 
@@ -1337,6 +1367,17 @@ def test_xtdata_df_is_cached():
 
 def test_xtdata_exported_from_public_module():
     assert pb.xt.XTData is XTData
+
+
+def test_xtdata_module_resolves_to_schema_module():
+    assert xt_data_module.XTData is XTData
+    assert xt_data_module.XTEventSchema is XTEventSchema
+
+
+def test_xtdata_module_is_compatibility_package():
+    module_path = Path(xt_data_module.__file__).resolve()
+    assert module_path.name == "__init__.py"
+    assert module_path.parent.name == "data"
 
 
 def test_xtmodel_exported_from_public_module():

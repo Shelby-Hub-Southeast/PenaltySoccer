@@ -148,7 +148,9 @@ class XTData:
         Column name for the end y-coordinate of move events.
     is_success : str, optional
         Column indicating completion (for moves) or goal (for shots).
-        If omitted, all events are assumed to have succeeded.
+        ``XTData`` can represent missing success metadata, but
+        :class:`~penaltyblog.xt.XTModel` requires this column when fitting
+        or scoring.
     x_range : tuple of (float, float)
         The (min, max) coordinate range used by your provider for the x-axis.
         Default ``(0.0, 100.0)`` means coordinates are already normalised.

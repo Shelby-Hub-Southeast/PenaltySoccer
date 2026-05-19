@@ -81,10 +81,6 @@ as a natural discount: cells far from goal need many successful transitions
 to reach a shooting position, and each step has a chance of failure that
 compounds multiplicatively through the linear solve.
 
-Without this, the xT surface has an artificially high floor in the
-defensive half because ``move_prob ≈ 1.0`` everywhere and value propagates
-freely across the pitch.
-
 .. _per-family-transitions:
 
 Per-family transitions
@@ -189,7 +185,7 @@ Usage
 -----
 
 Fit on a raw DataFrame or MatchFlow Flow (quick path)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 You can pass a DataFrame or ``penaltyblog.matchflow.Flow`` directly to
 ``fit``/``score``.
@@ -271,12 +267,73 @@ and shots taken from the big five European leagues.
 Scoring
 ^^^^^^^
 
-Scoring uses **successful move actions only** across all included families:
+Scoring adds three columns to the input DataFrame:
+
+- ``xt_start`` — xT value at the start location (set for all moves with
+  valid start coordinates, **including failed moves**)
+- ``xt_end`` — xT value at the end location (set only for successful moves)
+- ``xt_added`` — ``xt_end - xt_start`` (set only for successful moves)
+
+.. note::
+
+   ``xt_start`` is populated for **all** moves with valid start coordinates,
+   regardless of whether the move succeeded. This lets you measure the
+   possession value that was risked on a failed pass. ``xt_end`` and
+   ``xt_added`` are only set for *successful* moves that also have valid
+   end coordinates.
+
+By default, ``score()`` reuses the schema saved during ``fit``:
 
 .. code-block:: python
 
    scored = model.score(data)
    scored[["xt_start", "xt_end", "xt_added"]]
+
+To score with a different schema (for example, data from a different
+provider), pass a new ``XTEventSchema`` and set ``use_fit_schema=False``:
+
+.. code-block:: python
+
+   scored = model.score(other_df, schema=other_schema, use_fit_schema=False)
+
+Querying xT values
+^^^^^^^^^^^^^^^^^^
+
+After fitting (or loading a pretrained model), you can query the xT value
+at any normalized ``0-100`` coordinate with :meth:`XTModel.value_at`:
+
+.. code-block:: python
+
+   model.value_at(85, 50)   # xT near the penalty spot
+   model.value_at(10, 50)   # xT in the defensive half
+
+For bulk lookups, use the vectorised :meth:`XTModel.values_at`:
+
+.. code-block:: python
+
+   import numpy as np
+
+   xs = np.linspace(0, 100, 16)
+   ys = np.linspace(0, 100, 12)
+   xx, yy = np.meshgrid(xs, ys)
+   vals = model.values_at(xx.ravel(), yy.ravel())
+   heatmap = vals.reshape(12, 16)
+
+Both methods clip coordinates to the valid ``0..100`` range according to
+the model's ``coord_policy``.
+
+Saving and loading models
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Fitted models can be persisted to ``.npz`` files and reloaded later:
+
+.. code-block:: python
+
+   model.save("my_xt_model.npz")
+   loaded = XTModel.load("my_xt_model.npz")
+
+Saved files are portable and contain all arrays needed to score new events
+or query values. You do not need access to the original training data.
 
 Plotting
 ^^^^^^^^
@@ -286,6 +343,126 @@ Plotting uses :class:`penaltyblog.viz.Pitch` under the hood:
 .. code-block:: python
 
    model.plot()
+
+You can pass an existing :class:`~penaltyblog.viz.Pitch` instance or
+override the default colours and opacity:
+
+.. code-block:: python
+
+   model.plot(colorscale="Viridis", opacity=0.7, show_colorbar=True)
+
+API Reference
+-------------
+
+XTModel
+^^^^^^^
+
+.. autoclass:: penaltyblog.xt.XTModel
+   :members:
+   :undoc-members:
+
+XTEventSchema
+^^^^^^^^^^^^^
+
+.. autoclass:: penaltyblog.xt.XTEventSchema
+   :members:
+   :undoc-members:
+
+XTData
+^^^^^^
+
+.. autoclass:: penaltyblog.xt.XTData
+   :members:
+   :undoc-members:
+
+load_pretrained_xt
+^^^^^^^^^^^^^^^^^^
+
+.. autofunction:: penaltyblog.xt.load_pretrained_xt
+
+Fitted attributes
+^^^^^^^^^^^^^^^^^
+
+After calling :meth:`XTModel.fit`, the following attributes are available:
+
+- ``surface_`` — ``numpy.ndarray`` of shape ``(n_rows, n_cols)`` containing the fitted xT values.
+- ``shot_probability_`` — per-cell probability that an action is a shot.
+- ``goal_probability_`` — per-cell probability that a shot results in a goal (beta-binomial smoothed).
+- ``move_probability_`` — per-cell probability that an action is a successful move.
+- ``transition_matrix_`` — effective combined transition matrix of shape ``(n_cells, n_cells)``.
+- ``metadata_`` — dict with model hyperparameters, included families, and fit schema.
+- ``included_move_families_`` — list of move event types that were present in the training data.
+- ``included_shot_families_`` — list of shot event types that were present in the training data.
+- ``fitted_`` — ``True`` once the model has been fit or loaded.
+
+Troubleshooting
+---------------
+
+Missing ``is_success``
+^^^^^^^^^^^^^^^^^^^^^^
+
+**Error:** ``Missing success information. Provide an is_success column ...``
+
+The ``is_success`` column is mandatory for both ``fit`` and ``score``.
+For moves it records whether the action was completed; for shots it records
+whether a goal was scored. If your provider uses string labels, map them
+with ``XTEventSchema(success_value_map={...})``.
+
+Missing move end coordinates
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Error:** ``xT fit requires move end coordinates when move events are present.``
+
+When the data contains move events (passes, carries, etc.), ``fit`` needs
+``end_x`` and ``end_y`` columns so it can learn transition patterns. Use
+``XTEventSchema(end_x=..., end_y=...)`` to map your provider's destination
+coordinate columns.
+
+No shot events in training data
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Warning:** ``No shot events found in the training data. The fitted xT surface will be all zeros.``
+
+A model trained without shots cannot learn goal probability and will return
+zero everywhere. Check that your ``event_type_map`` correctly maps provider
+shot labels to ``"shot"`` (and ``"free_kick_shot"`` if applicable).
+
+Invalid success labels
+^^^^^^^^^^^^^^^^^^^^^^
+
+**Error:** ``Invalid values found in is_success: ...``
+
+xT rejects non-boolean, non-numeric labels by default. If your feed uses
+strings such as ``"Complete"`` or ``"Goal"``, provide an explicit mapping:
+
+.. code-block:: python
+
+   schema = XTEventSchema(success_value_map={"Complete": True, "Incomplete": False, "Goal": True})
+   model.fit(df, schema=schema)
+
+Ill-conditioned matrix
+^^^^^^^^^^^^^^^^^^^^^^
+
+**Warning:** ``xT transition matrix is ill-conditioned ...``
+
+This can happen with very sparse data or a very fine grid relative to the
+dataset size. The surface may contain extreme or unstable values. Remedies:
+
+- Increase the amount of training data.
+- Use a coarser grid (e.g. ``n_cols=12, n_rows=8`` instead of ``16x12``).
+- Check that your data contains a representative mix of shots and moves.
+
+Out-of-bounds coordinates
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Warning/Error:** ``xT fit/score received coordinates outside expected 0..100``
+
+Your provider probably uses a different coordinate scale (e.g. StatsBomb
+``0-120`` x ``0-80``). Declare the correct ranges in ``XTEventSchema``:
+
+.. code-block:: python
+
+   schema = XTEventSchema(x_range=(0, 120), y_range=(0, 80))
 
 Notes
 -----
