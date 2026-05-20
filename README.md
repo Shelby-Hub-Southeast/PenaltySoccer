@@ -67,7 +67,7 @@ Run these examples directly in your browser (no installation required):
 | **Create Interactive Charts**         | Create your own interactive football vizualisations                      | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1xFfIdvmbFcjHlS_2eHEu3NxD-xLNrbpY?usp=sharing) |
 | **Work Directly With Statsbomb Data** | Connect directly to Statsbomb's API, including their free open data sets | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1xFfIdvmbFcjHlS_2eHEu3NxD-xLNrbpY?usp=sharing) |
 | **Calculate Implied Probabilities**   | Calculate implied probabilities from bookmaker's odds                    | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1o-tOetyWmSY_1WczN8WhWsl62Uz5T65F?usp=sharing) |
-| **Calculate Expected Threat (xT)**   | Calculate xT from event data                    | [![Open In Colab](https://colab.research.google.com/drive/1SkATMMFEFbKdYKBjkcAFKmT2I46SWNf0?usp=sharing) |
+| **Calculate Expected Threat (xT)**  | Calculate xT from event data                    | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1SkATMMFEFbKdYKBjkcAFKmT2I46SWNf0?usp=sharing) |
 
 
 ## Documentation
