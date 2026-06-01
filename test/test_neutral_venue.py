@@ -6,6 +6,7 @@ from penaltyblog.bayes.likelihood import (
     football_log_prob_wrapper,
     hierarchical_log_prob_wrapper,
 )
+from penaltyblog.models.base_model import _coerce_neutral_venue
 
 MODELS = [
     pb.models.PoissonGoalsModel,
@@ -79,9 +80,7 @@ def test_neutral_venue_changes_the_loss(Model, match_data):
     params = m_zeros._params.copy()
     params[m_zeros._get_tail_param_indices()["home_advantage"]] = 0.3
 
-    assert not np.isclose(
-        m_zeros._loss_function(params), m_ones._loss_function(params)
-    )
+    assert not np.isclose(m_zeros._loss_function(params), m_ones._loss_function(params))
 
 
 @pytest.mark.parametrize("Model", MODELS)
@@ -149,7 +148,7 @@ def _bayes_data(model, neutral_venue):
         "goals_home": model.goals_home,
         "goals_away": model.goals_away,
         "weights": model.weights,
-        "neutral_venue": neutral_venue,
+        "neutral_venue": _coerce_neutral_venue(neutral_venue, len(model.home_idx)),
         "n_teams": model.n_teams,
     }
 
@@ -200,7 +199,9 @@ def test_bayesian_all_neutral_fit_converges(Model, wrapper, n_tail, match_data):
     """A short MCMC run with every match neutral must complete — this also
     confirms fit() threads neutral_venue into the sampler's data dict — and
     home advantage must be pinned to 0 since it is unidentified."""
-    model = Model(*match_data["args"], neutral_venue=np.ones(match_data["n"], dtype=np.int64))
+    model = Model(
+        *match_data["args"], neutral_venue=np.ones(match_data["n"], dtype=np.int64)
+    )
     model.fit(n_samples=80, burn=20, n_chains=2)
     assert model.fitted
     assert model.get_params()["home_advantage"] == 0.0
