@@ -26,6 +26,7 @@ cdef double dixon_coles_neg_ll_c(
     double[:] weights,
     long[:] home_indices,
     long[:] away_indices,
+    long[:] neutral_venue,
     double[:] attack,
     double[:] defence,
     double hfa,
@@ -43,7 +44,8 @@ cdef double dixon_coles_neg_ll_c(
         # Expected goals
         # 1. Clip exponent to prevent overflow in exp()
         # 2. Clip result to prevent underflow in log() (min lambda)
-        lambda_home = exp(fmin(MAX_EXP_VAL, hfa + attack[home_idx] + defence[away_idx]))
+        # Home advantage is excluded for matches played at a neutral venue.
+        lambda_home = exp(fmin(MAX_EXP_VAL, hfa * (1 - neutral_venue[i]) + attack[home_idx] + defence[away_idx]))
         lambda_home = fmax(MIN_LAMBDA, lambda_home)
 
         lambda_away = exp(fmin(MAX_EXP_VAL, attack[away_idx] + defence[home_idx]))
@@ -87,10 +89,12 @@ def football_log_prob_wrapper(double[:] params, object data):
     cdef long[:] goals_home = data['goals_home']
     cdef long[:] goals_away = data['goals_away']
     cdef double[:] weights = data['weights']
+    cdef long[:] neutral_venue = data['neutral_venue']
     cdef int n_teams = data['n_teams']
 
     return _bayesian_log_prob_c(
-        params, home_idx, away_idx, goals_home, goals_away, weights, n_teams
+        params, home_idx, away_idx, goals_home, goals_away, weights,
+        neutral_venue, n_teams
     )
 
 cdef double _bayesian_log_prob_c(
@@ -100,6 +104,7 @@ cdef double _bayesian_log_prob_c(
     long[:] goals_home,
     long[:] goals_away,
     double[:] weights,
+    long[:] neutral_venue,
     int n_teams
 ) nogil:
     cdef double log_prob = 0.0
@@ -158,7 +163,7 @@ cdef double _bayesian_log_prob_c(
     # --- 3. LIKELIHOOD ---
     cdef double neg_ll = dixon_coles_neg_ll_c(
         goals_home, goals_away, weights,
-        home_idx, away_idx, attack, defense, hfa, rho
+        home_idx, away_idx, neutral_venue, attack, defense, hfa, rho
     )
 
     return log_prob - neg_ll
@@ -175,14 +180,16 @@ def bayesian_predict_c(
     int home_idx,
     int away_idx,
     int n_teams,
-    int max_goals
+    int max_goals,
+    int neutral_venue
 ):
     """
     Computes the Posterior Predictive probability matrix.
     Averages the Dixon-Coles matrix over all MCMC samples.
+
+    When neutral_venue is 1, home advantage is excluded from the prediction.
     """
     cdef int n_samples = trace.shape[0]
-    cdef int n_params = trace.shape[1]
 
     cdef int dim = max_goals
     cdef double[:, ::1] avg_matrix = np.zeros((dim, dim), dtype=np.float64)
@@ -201,11 +208,15 @@ def bayesian_predict_c(
             att_a = trace[s, away_idx]
             def_h = trace[s, n_teams + home_idx]
             def_a = trace[s, n_teams + away_idx]
-            hfa   = trace[s, n_params - 2]
-            rho   = trace[s, n_params - 1]
+            # hfa and rho sit right after the 2*n_teams attack/defence params.
+            # Indexing relative to n_teams (not the trace width) keeps this
+            # correct for the hierarchical model, whose trace has trailing
+            # sigma parameters.
+            hfa   = trace[s, 2 * n_teams]
+            rho   = trace[s, 2 * n_teams + 1]
 
-            # Lambdas
-            lambda_h = exp(fmin(MAX_EXP_VAL, hfa + att_h + def_a))
+            # Lambdas (home advantage excluded at a neutral venue)
+            lambda_h = exp(fmin(MAX_EXP_VAL, hfa * (1 - neutral_venue) + att_h + def_a))
             lambda_h = fmax(MIN_LAMBDA, lambda_h)
 
             lambda_a = exp(fmin(MAX_EXP_VAL, att_a + def_h))
@@ -266,10 +277,12 @@ def hierarchical_log_prob_wrapper(double[:] params, object data):
     cdef long[:] goals_home = data['goals_home']
     cdef long[:] goals_away = data['goals_away']
     cdef double[:] weights = data['weights']
+    cdef long[:] neutral_venue = data['neutral_venue']
     cdef int n_teams = data['n_teams']
 
     return _hierarchical_log_prob_c(
-        params, home_idx, away_idx, goals_home, goals_away, weights, n_teams
+        params, home_idx, away_idx, goals_home, goals_away, weights,
+        neutral_venue, n_teams
     )
 
 cdef double _hierarchical_log_prob_c(
@@ -279,6 +292,7 @@ cdef double _hierarchical_log_prob_c(
     long[:] goals_home,
     long[:] goals_away,
     double[:] weights,
+    long[:] neutral_venue,
     int n_teams
 ) nogil:
     cdef double log_prob = 0.0
@@ -325,7 +339,7 @@ cdef double _hierarchical_log_prob_c(
 
     cdef double neg_ll = dixon_coles_neg_ll_c(
         goals_home, goals_away, weights,
-        home_idx, away_idx, attack, defense, hfa, rho
+        home_idx, away_idx, neutral_venue, attack, defense, hfa, rho
     )
 
     return log_prob - neg_ll

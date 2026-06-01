@@ -6,6 +6,7 @@ from numpy.typing import NDArray
 from penaltyblog.models.base_model import BaseGoalsModel
 from penaltyblog.models.custom_types import (
     GoalInput,
+    NeutralVenueInput,
     ParamsOutput,
     TeamInput,
     WeightInput,
@@ -34,6 +35,7 @@ class BivariatePoissonGoalModel(BaseGoalsModel):
         teams_home: TeamInput,
         teams_away: TeamInput,
         weights: WeightInput = None,
+        neutral_venue: NeutralVenueInput = None,
     ):
         """
         Initialises the BivariatePoissonGoalModel class.
@@ -50,8 +52,13 @@ class BivariatePoissonGoalModel(BaseGoalsModel):
             The names of the away teams
         weights : array_like, optional
             The weights of the matches, by default None
+        neutral_venue : array_like, optional
+            Per-match flag (0/1) marking matches played at a neutral venue. When 1,
+            home advantage is excluded for that match, by default None
         """
-        super().__init__(goals_home, goals_away, teams_home, teams_away, weights)
+        super().__init__(
+            goals_home, goals_away, teams_home, teams_away, weights, neutral_venue
+        )
 
         self._params = np.concatenate(
             (
@@ -118,6 +125,7 @@ class BivariatePoissonGoalModel(BaseGoalsModel):
             self.weights,
             self.home_idx,
             self.away_idx,
+            self.neutral_venue,
             attack,
             defence,
             hfa,
@@ -145,6 +153,7 @@ class BivariatePoissonGoalModel(BaseGoalsModel):
             self.goals_home,
             self.goals_away,
             self.weights,
+            self.neutral_venue,
         )
 
     def fit(self, minimizer_options: Optional[dict] = None, use_gradient: bool = True):
@@ -175,13 +184,18 @@ class BivariatePoissonGoalModel(BaseGoalsModel):
         )
 
     def _compute_probabilities(
-        self, home_idx: int, away_idx: int, max_goals: int, normalize: bool = True
+        self,
+        home_idx: int,
+        away_idx: int,
+        max_goals: int,
+        normalize: bool = True,
+        neutral_venue: bool = False,
     ) -> FootballProbabilityGrid:
         home_attack = self._params[home_idx]
         away_attack = self._params[away_idx]
         home_defense = self._params[home_idx + self.n_teams]
         away_defense = self._params[away_idx + self.n_teams]
-        home_advantage = self._params[-2]
+        home_advantage = 0.0 if neutral_venue else self._params[-2]
         correlation = self._params[-1]
 
         # Preallocate the score matrix as a flattened array.
@@ -219,6 +233,7 @@ class BivariatePoissonGoalModel(BaseGoalsModel):
         away_idx: np.ndarray,
         max_goals: int,
         normalize: bool = True,
+        neutral_venue: np.ndarray = None,
     ):
         """
         Batch probability computation for multiple fixtures.
@@ -237,7 +252,6 @@ class BivariatePoissonGoalModel(BaseGoalsModel):
         lambda_away = np.empty(1, dtype=np.float64)
 
         correlation = self._params[-1]
-        home_advantage = self._params[-2]
 
         for i in range(n):
             h_idx = int(home_idx[i])
@@ -247,6 +261,11 @@ class BivariatePoissonGoalModel(BaseGoalsModel):
             away_attack = self._params[a_idx]
             home_defense = self._params[h_idx + self.n_teams]
             away_defense = self._params[a_idx + self.n_teams]
+            home_advantage = (
+                0.0
+                if neutral_venue is not None and neutral_venue[i]
+                else self._params[-2]
+            )
 
             compute_bivariate_poisson_probabilities(
                 float(home_attack),

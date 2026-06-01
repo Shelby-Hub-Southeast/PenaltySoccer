@@ -10,7 +10,12 @@ from penaltyblog.bayes.likelihood import (
 )
 from penaltyblog.bayes.sampler_api import EnsembleSampler
 from penaltyblog.models.base_bayesian_model import BaseBayesianModel
-from penaltyblog.models.custom_types import GoalInput, TeamInput, WeightInput
+from penaltyblog.models.custom_types import (
+    GoalInput,
+    NeutralVenueInput,
+    TeamInput,
+    WeightInput,
+)
 from penaltyblog.models.football_probability_grid import (
     FootballProbabilityGrid,
 )
@@ -46,6 +51,7 @@ class BayesianGoalModel(BaseBayesianModel):
         teams_home: TeamInput,
         teams_away: TeamInput,
         weights: WeightInput = None,
+        neutral_venue: NeutralVenueInput = None,
     ):
         """
         Initialize a Bayesian goal model.
@@ -62,8 +68,13 @@ class BayesianGoalModel(BaseBayesianModel):
             Names of away teams for each match.
         weights : WeightInput, optional
             Match weights (e.g., from time decay). If None, all matches are weighted equally.
+        neutral_venue : NeutralVenueInput, optional
+            Per-match flag (0/1) marking matches played at a neutral venue. When 1,
+            home advantage is excluded for that match.
         """
-        super().__init__(goals_home, goals_away, teams_home, teams_away, weights)
+        super().__init__(
+            goals_home, goals_away, teams_home, teams_away, weights, neutral_venue
+        )
 
     def _generate_start_positions(
         self, n_walkers: int, mle_params: Optional[np.ndarray] = None
@@ -145,6 +156,7 @@ class BayesianGoalModel(BaseBayesianModel):
             "goals_home": self.goals_home,
             "goals_away": self.goals_away,
             "weights": self.weights,
+            "neutral_venue": self.neutral_venue,
             "n_teams": self.n_teams,
         }
 
@@ -177,6 +189,7 @@ class BayesianGoalModel(BaseBayesianModel):
 
         self._params = np.mean(self.trace, axis=0)
         self.fitted = True
+        self._zero_home_advantage_if_all_neutral()
 
     def get_diagnostics(self, burn: int = 0, thin: int = 1) -> pd.DataFrame:
         """
@@ -228,13 +241,19 @@ class BayesianGoalModel(BaseBayesianModel):
             self.teams_home,
             self.teams_away,
             self.weights,
+            neutral_venue=self.neutral_venue,
         )
         simple_model.fit()
 
         return simple_model._params
 
     def _compute_probabilities(
-        self, home_idx: int, away_idx: int, max_goals: int, normalize: bool = True
+        self,
+        home_idx: int,
+        away_idx: int,
+        max_goals: int,
+        normalize: bool = True,
+        neutral_venue: bool = False,
     ) -> FootballProbabilityGrid:
         """
         Compute posterior predictive probabilities for a fixture.
@@ -245,7 +264,8 @@ class BayesianGoalModel(BaseBayesianModel):
             raise ValueError("Model has not been fitted. Call .fit() first.")
 
         matrix, avg_lam_h, avg_lam_a = bayesian_predict_c(
-            self.trace, home_idx, away_idx, self.n_teams, max_goals
+            self.trace, home_idx, away_idx, self.n_teams, max_goals,
+            int(neutral_venue),
         )
         return FootballProbabilityGrid(
             matrix, avg_lam_h, avg_lam_a, normalize=normalize
