@@ -7,10 +7,10 @@ The script has three modes:
 2. predict: load a saved bundle and analyse one fixture.
 3. train-predict: train and immediately analyse one fixture.
 
-Default handicap convention follows the app screenshots used in this project:
-negative line means the home team receives goals, positive/no-sign line means
-home team gives goals. Use --handicap-style standard for the native penaltyblog
-sign convention.
+Asian handicap convention follows penaltyblog's native standard:
+negative home line means the home team gives goals, positive home line means
+the home team receives goals. For example, home -0.5 means the home team must
+win, while home +0.5 means the home team wins the bet if it wins or draws.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import math
 import pickle
 import sys
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from difflib import get_close_matches
 from pathlib import Path
 from typing import Any, Iterable
@@ -33,7 +33,7 @@ import penaltyblog as pb
 
 DEFAULT_MODELS = ["dc", "poisson", "bivariate"]
 DEFAULT_TOTAL_LINES = [2.0, 2.25, 2.5, 2.75, 3.0, 3.25]
-DEFAULT_APP_HOME_HANDICAPS = [
+DEFAULT_HOME_HANDICAPS = [
     -1.5,
     -1.25,
     -1.0,
@@ -89,6 +89,10 @@ class PredictionReport:
     ensemble: dict[str, Any]
     context: dict[str, Any]
     warnings: list[str]
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def parse_float_list(values: list[str] | None, defaults: list[float]) -> list[float]:
@@ -228,7 +232,7 @@ def build_training_result(args: argparse.Namespace) -> TrainResult:
     metadata = {
         "competition": args.competition,
         "season": args.season,
-        "trained_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "trained_at": utc_now_iso(),
         "training_match_count": int(len(football_data)),
         "training_start_date": football_data["date"].min().date().isoformat(),
         "training_end_date": football_data["date"].max().date().isoformat(),
@@ -237,6 +241,7 @@ def build_training_result(args: argparse.Namespace) -> TrainResult:
         "used_understat": understat_data is not None,
         "used_clubelo": clubelo_data is not None,
         "clubelo_date": args.elo_date,
+        "handicap_convention": "penaltyblog_standard",
     }
     return TrainResult(models, metadata, football_data, understat_data, clubelo_data, warnings)
 
@@ -268,14 +273,6 @@ def load_bundle(path: str | Path) -> TrainResult:
     )
 
 
-def app_line_to_penaltyblog_home_line(app_line: float, handicap_style: str) -> float:
-    if handicap_style == "standard":
-        return app_line
-    if handicap_style == "app":
-        return -app_line
-    raise ValueError("handicap_style must be 'app' or 'standard'")
-
-
 def top_exact_scores(pred: Any, limit: int) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     grid = pred.grid
@@ -291,7 +288,6 @@ def prediction_from_grid(
     total_lines: list[float],
     home_handicaps: list[float],
     top_scores: int,
-    handicap_style: str,
 ) -> dict[str, Any]:
     totals = {}
     for line in total_lines:
@@ -299,15 +295,13 @@ def prediction_from_grid(
         totals[str(line)] = {"under": under, "push": push, "over": over}
 
     handicaps = {}
-    for displayed_line in home_handicaps:
-        model_home_line = app_line_to_penaltyblog_home_line(displayed_line, handicap_style)
-        home_probs = pred.asian_handicap_probs("home", model_home_line)
-        away_probs = pred.asian_handicap_probs("away", -model_home_line)
-        handicaps[str(displayed_line)] = {
-            "displayed_home_line": displayed_line,
-            "handicap_style": handicap_style,
-            "penaltyblog_home_line": model_home_line,
+    for line in home_handicaps:
+        home_probs = pred.asian_handicap_probs("home", line)
+        away_probs = pred.asian_handicap_probs("away", -line)
+        handicaps[str(line)] = {
+            "home_line": line,
             "home": home_probs,
+            "away_equivalent_line": -line,
             "away": away_probs,
         }
 
@@ -347,10 +341,21 @@ def mean_nested_dict(dicts: Iterable[dict[str, Any]]) -> dict[str, Any]:
         return first
 
     keys = [
-        "home_win", "draw", "away_win", "home_draw_away",
-        "home_goal_expectation", "away_goal_expectation", "btts_yes", "btts_no",
-        "double_chance_1x", "double_chance_x2", "double_chance_12",
-        "draw_no_bet_home", "draw_no_bet_away", "totals", "asian_handicaps_home_perspective",
+        "home_win",
+        "draw",
+        "away_win",
+        "home_draw_away",
+        "home_goal_expectation",
+        "away_goal_expectation",
+        "btts_yes",
+        "btts_no",
+        "double_chance_1x",
+        "double_chance_x2",
+        "double_chance_12",
+        "draw_no_bet_home",
+        "draw_no_bet_away",
+        "totals",
+        "asian_handicaps_home_perspective",
     ]
     return {key: combine([item[key] for item in values]) for key in keys if key in values[0]}
 
@@ -369,7 +374,10 @@ def recent_xg_summary(df: pd.DataFrame | None, home: str, away: str, recent: int
     for team in [home, away]:
         team_rows = df[(df["team_home"] == team) | (df["team_away"] == team)].sort_values("date").tail(recent)
         if team_rows.empty:
-            summary["teams"][team] = {"available": False, "suggestions": get_close_matches(team, list_known_teams(df), n=5, cutoff=0.45)}
+            summary["teams"][team] = {
+                "available": False,
+                "suggestions": get_close_matches(team, list_known_teams(df), n=5, cutoff=0.45),
+            }
             continue
         xg_for: list[float] = []
         xg_against: list[float] = []
@@ -408,7 +416,11 @@ def clubelo_summary(df: pd.DataFrame | None, home: str, away: str) -> dict[str, 
     team_names = lookup.index.astype(str).tolist()
     for team, key in [(home, "home"), (away, "away")]:
         if team not in lookup.index:
-            result[key] = {"available": False, "team": team, "suggestions": get_close_matches(team, team_names, n=5, cutoff=0.45)}
+            result[key] = {
+                "available": False,
+                "team": team,
+                "suggestions": get_close_matches(team, team_names, n=5, cutoff=0.45),
+            }
         else:
             row = lookup.loc[team]
             result[key] = {"available": True, "team": team, "elo": float(row["elo"])}
@@ -446,8 +458,18 @@ def build_model_leans(ensemble: dict[str, Any]) -> dict[str, Any]:
     for line, item in ensemble["asian_handicaps_home_perspective"].items():
         home_win = item["home"]["win"]
         away_win = item["away"]["win"]
-        handicaps.append({"displayed_home_line": line, "lean": "home" if home_win >= away_win else "away", "probability": max(home_win, away_win)})
-    return {"most_likely_1x2": {"outcome": best_1x2[0], "probability": best_1x2[1]}, "totals": totals, "asian_handicaps": handicaps}
+        handicaps.append(
+            {
+                "home_line": line,
+                "lean": "home" if home_win >= away_win else "away",
+                "probability": max(home_win, away_win),
+            }
+        )
+    return {
+        "most_likely_1x2": {"outcome": best_1x2[0], "probability": best_1x2[1]},
+        "totals": totals,
+        "asian_handicaps": handicaps,
+    }
 
 
 def build_prediction_report(
@@ -459,7 +481,6 @@ def build_prediction_report(
     top_scores: int,
     recent: int,
     odds_1x2: list[float] | None,
-    handicap_style: str,
 ) -> PredictionReport:
     teams = list_known_teams(result.football_data)
     assert_team_known(home, teams, "home")
@@ -470,7 +491,7 @@ def build_prediction_report(
     for name, model in result.models.items():
         try:
             pred = model.predict(home, away)
-            model_predictions[name] = prediction_from_grid(pred, total_lines, home_handicaps, top_scores, handicap_style)
+            model_predictions[name] = prediction_from_grid(pred, total_lines, home_handicaps, top_scores)
         except Exception as exc:
             warnings.append(f"Prediction failed for {name}: {type(exc).__name__}: {exc}")
 
@@ -487,8 +508,8 @@ def build_prediction_report(
         "clubelo": clubelo_summary(result.clubelo_data, home, away),
     }
     metadata = dict(result.metadata)
-    metadata["predicted_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-    metadata["handicap_style"] = handicap_style
+    metadata["predicted_at"] = utc_now_iso()
+    metadata["handicap_convention"] = "penaltyblog_standard"
     return PredictionReport(metadata, home, away, model_predictions, ensemble, context, warnings)
 
 
@@ -498,16 +519,22 @@ def print_prediction_report(report: PredictionReport) -> None:
     print(f"Fixture: {report.home} vs {report.away}")
     print(f"Models: {', '.join(report.ensemble.get('models', []))}")
     print(f"Training matches: {report.metadata.get('training_match_count')}")
-    print("Handicap style: app convention, negative means home receives; positive means home gives")
+    print("Handicap convention: penaltyblog standard, negative home line means home gives goals")
 
     h, d, a = report.ensemble["home_draw_away"]
     print_section("Ensemble 1X2")
-    print_table([
-        {"Outcome": "Home", "Probability": fmt_pct(h)},
-        {"Outcome": "Draw", "Probability": fmt_pct(d)},
-        {"Outcome": "Away", "Probability": fmt_pct(a)},
-    ], ["Outcome", "Probability"])
-    print(f"Expected goals: {report.home} {fmt_num(report.ensemble['home_goal_expectation'])} | {report.away} {fmt_num(report.ensemble['away_goal_expectation'])}")
+    print_table(
+        [
+            {"Outcome": "Home", "Probability": fmt_pct(h)},
+            {"Outcome": "Draw", "Probability": fmt_pct(d)},
+            {"Outcome": "Away", "Probability": fmt_pct(a)},
+        ],
+        ["Outcome", "Probability"],
+    )
+    print(
+        f"Expected goals: {report.home} {fmt_num(report.ensemble['home_goal_expectation'])} | "
+        f"{report.away} {fmt_num(report.ensemble['away_goal_expectation'])}"
+    )
     print(f"BTTS yes: {fmt_pct(report.ensemble['btts_yes'])}")
     print(f"Double chance 1X: {fmt_pct(report.ensemble['double_chance_1x'])}")
     print(f"Double chance X2: {fmt_pct(report.ensemble['double_chance_x2'])}")
@@ -516,24 +543,49 @@ def print_prediction_report(report: PredictionReport) -> None:
     total_rows = []
     for line, probs in report.ensemble["totals"].items():
         lean = "Under" if probs["under"] >= probs["over"] else "Over"
-        total_rows.append({"Line": line, "Under": fmt_pct(probs["under"]), "Push": fmt_pct(probs["push"]), "Over": fmt_pct(probs["over"]), "Lean": lean})
+        total_rows.append(
+            {
+                "Line": line,
+                "Under": fmt_pct(probs["under"]),
+                "Push": fmt_pct(probs["push"]),
+                "Over": fmt_pct(probs["over"]),
+                "Lean": lean,
+            }
+        )
     print_table(total_rows, ["Line", "Under", "Push", "Over", "Lean"])
 
-    print_section("Asian handicap, home app convention")
+    print_section("Asian handicap, home perspective")
     ah_rows = []
     for line, item in report.ensemble["asian_handicaps_home_perspective"].items():
         home_probs = item["home"]
         away_probs = item["away"]
         side = report.home if home_probs["win"] >= away_probs["win"] else report.away
-        ah_rows.append({"Home line": f"{float(line):g}", "Home win": fmt_pct(home_probs["win"]), "Home push": fmt_pct(home_probs["push"]), "Away win": fmt_pct(away_probs["win"]), "Lean": side})
-    print_table(ah_rows, ["Home line", "Home win", "Home push", "Away win", "Lean"])
+        ah_rows.append(
+            {
+                "Home line": f"{float(line):g}",
+                "Home win": fmt_pct(home_probs["win"]),
+                "Home push": fmt_pct(home_probs["push"]),
+                "Away eq line": f"{float(item['away_equivalent_line']):g}",
+                "Away win": fmt_pct(away_probs["win"]),
+                "Lean": side,
+            }
+        )
+    print_table(ah_rows, ["Home line", "Home win", "Home push", "Away eq line", "Away win", "Lean"])
 
     print_section("Per-model 1X2 and top scores")
     model_rows = []
     for name, pred in report.model_predictions.items():
         h0, d0, a0 = pred["home_draw_away"]
         top_scores = ", ".join(f"{row['score']} {fmt_pct(row['prob'])}" for row in pred["top_exact_scores"][:3])
-        model_rows.append({"Model": MODEL_DISPLAY_NAMES.get(name, name), "Home": fmt_pct(h0), "Draw": fmt_pct(d0), "Away": fmt_pct(a0), "Top scores": top_scores})
+        model_rows.append(
+            {
+                "Model": MODEL_DISPLAY_NAMES.get(name, name),
+                "Home": fmt_pct(h0),
+                "Draw": fmt_pct(d0),
+                "Away": fmt_pct(a0),
+                "Top scores": top_scores,
+            }
+        )
     print_table(model_rows, ["Model", "Home", "Draw", "Away", "Top scores"])
 
     market = report.ensemble.get("market_1x2", {})
@@ -541,7 +593,14 @@ def print_prediction_report(report: PredictionReport) -> None:
         print_section("Market 1X2 comparison")
         rows = []
         for idx, label in enumerate(["home", "draw", "away"]):
-            rows.append({"Outcome": label, "Model": fmt_pct(report.ensemble["home_draw_away"][idx]), "Market": fmt_pct(market["implied_probabilities"][idx]), "Gap": fmt_pct(market["model_minus_market"][label])})
+            rows.append(
+                {
+                    "Outcome": label,
+                    "Model": fmt_pct(report.ensemble["home_draw_away"][idx]),
+                    "Market": fmt_pct(market["implied_probabilities"][idx]),
+                    "Gap": fmt_pct(market["model_minus_market"][label]),
+                }
+            )
         print_table(rows, ["Outcome", "Model", "Market", "Gap"])
         print(f"Market margin: {fmt_pct(market.get('margin'))}")
 
@@ -589,11 +648,10 @@ def command_predict(args: argparse.Namespace) -> int:
         args.home,
         args.away,
         parse_float_list(args.totals, DEFAULT_TOTAL_LINES),
-        parse_float_list(args.handicaps, DEFAULT_APP_HOME_HANDICAPS),
+        parse_float_list(args.handicaps, DEFAULT_HOME_HANDICAPS),
         args.top_scores,
         args.recent,
         args.odds_1x2,
-        args.handicap_style,
     )
     print_prediction_report(report)
     save_report_json(report, args.report_out)
@@ -609,11 +667,10 @@ def command_train_predict(args: argparse.Namespace) -> int:
         args.home,
         args.away,
         parse_float_list(args.totals, DEFAULT_TOTAL_LINES),
-        parse_float_list(args.handicaps, DEFAULT_APP_HOME_HANDICAPS),
+        parse_float_list(args.handicaps, DEFAULT_HOME_HANDICAPS),
         args.top_scores,
         args.recent,
         args.odds_1x2,
-        args.handicap_style,
     )
     print_prediction_report(report)
     save_report_json(report, args.report_out)
@@ -634,12 +691,10 @@ def add_common_predict_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--home", required=True)
     parser.add_argument("--away", required=True)
     parser.add_argument("--totals", nargs="*", help="Totals lines, e.g. 2.5 2.75 3.0")
-    parser.add_argument("--handicaps", nargs="*", help="Home handicap lines in selected style")
     parser.add_argument(
-        "--handicap-style",
-        choices=["app", "standard"],
-        default="app",
-        help="app: negative means home receives, positive means home gives. standard: penaltyblog convention.",
+        "--handicaps",
+        nargs="*",
+        help="Home handicap lines using penaltyblog standard: negative means home gives, positive means home receives",
     )
     parser.add_argument("--top-scores", type=int, default=DEFAULT_TOP_SCORES)
     parser.add_argument("--recent", type=int, default=DEFAULT_RECENT_MATCHES, help="Recent matches for Understat xG summary")
