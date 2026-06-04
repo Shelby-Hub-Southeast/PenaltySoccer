@@ -33,7 +33,21 @@ import penaltyblog as pb
 
 DEFAULT_MODELS = ["dc", "poisson", "bivariate"]
 DEFAULT_TOTAL_LINES = [2.0, 2.25, 2.5, 2.75, 3.0, 3.25]
-DEFAULT_APP_HOME_HANDICAPS = [-1.5, -1.25, -1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5]
+DEFAULT_APP_HOME_HANDICAPS = [
+    -1.5,
+    -1.25,
+    -1.0,
+    -0.75,
+    -0.5,
+    -0.25,
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0,
+    1.25,
+    1.5,
+]
 DEFAULT_TOP_SCORES = 8
 DEFAULT_RECENT_MATCHES = 6
 
@@ -42,7 +56,7 @@ MODEL_REGISTRY = {
     "poisson": pb.models.PoissonGoalsModel,
     "bivariate": pb.models.BivariatePoissonGoalModel,
     "negative_binomial": pb.models.NegativeBinomialGoalModel,
-    "zero_inflated": pb.models.ZeroInflatedPoissonGoalModel,
+    "zero_inflated": pb.models.ZeroInflatedPoissonGoalsModel,
     "weibull_copula": pb.models.WeibullCopulaGoalsModel,
 }
 
@@ -570,7 +584,17 @@ def command_train(args: argparse.Namespace) -> int:
 
 def command_predict(args: argparse.Namespace) -> int:
     result = load_bundle(args.model)
-    report = build_prediction_report(result, args.home, args.away, parse_float_list(args.totals, DEFAULT_TOTAL_LINES), parse_float_list(args.handicaps, DEFAULT_APP_HOME_HANDICAPS), args.top_scores, args.recent, args.odds_1x2, args.handicap_style)
+    report = build_prediction_report(
+        result,
+        args.home,
+        args.away,
+        parse_float_list(args.totals, DEFAULT_TOTAL_LINES),
+        parse_float_list(args.handicaps, DEFAULT_APP_HOME_HANDICAPS),
+        args.top_scores,
+        args.recent,
+        args.odds_1x2,
+        args.handicap_style,
+    )
     print_prediction_report(report)
     save_report_json(report, args.report_out)
     return 0
@@ -580,7 +604,17 @@ def command_train_predict(args: argparse.Namespace) -> int:
     result = build_training_result(args)
     save_bundle(result, args.model_out)
     print(f"Saved model bundle to: {args.model_out}")
-    report = build_prediction_report(result, args.home, args.away, parse_float_list(args.totals, DEFAULT_TOTAL_LINES), parse_float_list(args.handicaps, DEFAULT_APP_HOME_HANDICAPS), args.top_scores, args.recent, args.odds_1x2, args.handicap_style)
+    report = build_prediction_report(
+        result,
+        args.home,
+        args.away,
+        parse_float_list(args.totals, DEFAULT_TOTAL_LINES),
+        parse_float_list(args.handicaps, DEFAULT_APP_HOME_HANDICAPS),
+        args.top_scores,
+        args.recent,
+        args.odds_1x2,
+        args.handicap_style,
+    )
     print_prediction_report(report)
     save_report_json(report, args.report_out)
     return 0
@@ -601,7 +635,12 @@ def add_common_predict_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--away", required=True)
     parser.add_argument("--totals", nargs="*", help="Totals lines, e.g. 2.5 2.75 3.0")
     parser.add_argument("--handicaps", nargs="*", help="Home handicap lines in selected style")
-    parser.add_argument("--handicap-style", choices=["app", "standard"], default="app", help="app: negative means home receives, positive means home gives. standard: penaltyblog convention.")
+    parser.add_argument(
+        "--handicap-style",
+        choices=["app", "standard"],
+        default="app",
+        help="app: negative means home receives, positive means home gives. standard: penaltyblog convention.",
+    )
     parser.add_argument("--top-scores", type=int, default=DEFAULT_TOP_SCORES)
     parser.add_argument("--recent", type=int, default=DEFAULT_RECENT_MATCHES, help="Recent matches for Understat xG summary")
     parser.add_argument("--odds-1x2", nargs=3, type=float, metavar=("HOME", "DRAW", "AWAY"))
