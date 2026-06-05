@@ -9,6 +9,12 @@ from penaltysoccer.data.markets import MarketBook
 from .ev import BetAnalysis, analyze_binary_market, analyze_push_market
 
 
+def _line_key(line: float) -> str:
+    """Return the key format used by prediction dictionaries."""
+
+    return str(float(line))
+
+
 def analyze_market_book(
     market_book: MarketBook,
     prediction: dict[str, Any],
@@ -16,7 +22,11 @@ def analyze_market_book(
     kelly_fraction_multiplier: float = 0.25,
     max_kelly: float | None = 0.03,
 ) -> list[BetAnalysis]:
-    """Analyze all available market prices against an ensemble prediction."""
+    """Analyze all available market prices against an ensemble prediction.
+
+    Asian handicap predictions are stored from the home-line perspective. For an
+    away-side market, the equivalent home line is ``-away_line``.
+    """
 
     analyses: list[BetAnalysis] = []
 
@@ -32,7 +42,7 @@ def analyze_market_book(
         )
 
     for market in market_book.totals:
-        probs = prediction["totals"].get(str(market.line))
+        probs = prediction["totals"].get(_line_key(market.line))
         if not probs:
             continue
         if market.over:
@@ -69,7 +79,8 @@ def analyze_market_book(
             )
 
     for market in market_book.asian_handicaps:
-        probs = prediction["asian_handicaps_home_perspective"].get(str(market.line))
+        home_line = market.line if market.side == "home" else -market.line
+        probs = prediction["asian_handicaps_home_perspective"].get(_line_key(home_line))
         if not probs:
             continue
         side_probs = probs[market.side]
