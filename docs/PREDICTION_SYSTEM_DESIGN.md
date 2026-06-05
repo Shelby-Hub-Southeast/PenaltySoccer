@@ -1,6 +1,6 @@
 # PenaltySoccer 应用层预测系统设计文档
 
-本文档用于指导 PenaltySoccer 从 `penaltyblog` fork 直接发展为完整的赛前预测与投注分析应用。当前仓库底层已经具备数据抓取、进球模型、盘口概率、赔率隐含概率、投注价值计算、回测、评级、指标、可视化、事件数据流和 xT 等能力。后续开发将不再把 `experiments/full_predict.py` 作为主线，而是直接建设 `penaltysoccer/` 应用层。
+本文档用于指导 PenaltySoccer 从 `penaltyblog` fork 直接发展为完整的赛前预测与投注分析应用。当前仓库底层已经具备数据抓取、进球模型、盘口概率、赔率隐含概率、投注价值计算、回测、评级、指标、可视化、事件数据流和 xT 等能力。后续开发不再把 `experiments/full_predict.py` 作为主线，而是直接建设 `penaltysoccer/` 应用层。
 
 ## 1. 设计结论
 
@@ -14,20 +14,28 @@
 
 正式业务逻辑放入新的 `penaltysoccer/` 包。`penaltyblog/` 继续作为底层量化工具库，尽量保持原项目语义。`penaltysoccer/` 负责把底层能力组合成我们的赛前预测、投注价值判断、回测、报告和自动化流程。
 
-这样的分层更适合长期维护。底层库负责模型、数据源和通用工具；应用层负责业务流程、配置文件、批量任务、投注市场解释和报告输出。
+这样的分层更适合长期维护。底层库负责模型、数据源和通用工具；应用层负责业务流程、配置文件、批量任务、市场数据、投注解释和报告输出。
 
 ### 1.3 当前仓库继续使用，不另开新项目
 
 当前 fork 已经包含 penaltyblog 源码，并且我们需要深入复用和组合这些能力，所以继续在 `Shelby-Hub-Southeast/PenaltySoccer` 中开发。新建独立仓库会增加依赖同步、源码调试和版本管理成本。
+
+### 1.4 明确市场数据边界
+
+`penaltyblog` 当前有赔率分析能力，但没有开箱即用的稳定实时盘口抓取器。它可以从模型比分矩阵推导大小球和亚洲让球概率，也可以对已经输入的赔率做隐含概率、EV、Kelly 和 value bet 分析；FootballData 的历史 CSV 中还可能包含历史赔率字段，可用于回测。但是，它目前没有直接提供实时抓取当天盘口、水位和博彩公司赔率的统一数据源。
+
+因此，`penaltysoccer` 应用层必须单独设计 `data/markets.py`。这个模块的目标不是简单读取手动配置，而是统一管理市场数据来源：第一阶段支持配置文件手动输入，第二阶段解析 FootballData 历史赔率用于回测，第三阶段接入实时赔率 API 或网页抓取，第四阶段支持截图盘口解析作为兜底。
 
 ## 2. 目标系统形态
 
 目标系统要从单场概率输出升级为一套完整流程：
 
 ```text
-配置文件
+配置文件或命令行输入
   ↓
 数据抓取和标准化
+  ↓
+市场盘口与赔率获取
   ↓
 模型训练和模型保存
   ↓
@@ -42,7 +50,7 @@
 GitHub Actions 定期运行
 ```
 
-系统最终要回答三个问题。第一，模型如何看待比赛，包括胜平负、期望进球、大小球、亚洲让球、精确比分和双方进球。第二，当前赔率是否有价值，包括隐含概率、edge、EV、Kelly 仓位和是否满足下注阈值。第三，策略长期表现如何，包括 ROI、命中率、最大回撤、Brier Score、RPS 和分盘口统计。
+系统最终要回答三个问题。第一，模型如何看待比赛，包括胜平负、期望进球、大小球、亚洲让球、精确比分和双方进球。第二，当前盘口和赔率是否有价值，包括隐含概率、edge、EV、Kelly 仓位和是否满足下注阈值。第三，策略长期表现如何，包括 ROI、命中率、最大回撤、Brier Score、RPS 和分盘口统计。
 
 ## 3. 推荐目录结构
 
@@ -155,6 +163,8 @@ penaltysoccer backtest --config configs/backtest/epl_value_bets.json
 
 `markets.py` 标准化赔率和盘口输入，包括 1X2、大小球和亚洲让球。系统统一采用 penaltyblog 标准盘口符号：选择 home 时，负数表示主队让球，正数表示主队受让。
 
+`markets.py` 还负责市场数据来源管理。第一版从配置文件读取盘口和赔率，保证 EV/Kelly 逻辑先跑通。第二版解析 FootballData 中的历史赔率字段，用于回测。第三版接入实时赔率 API 或网页抓取。第四版支持上传截图后的结构化盘口解析结果。
+
 ### 4.3 models
 
 `models` 负责模型注册、训练、保存、加载和集成。
@@ -235,9 +245,62 @@ EV = P(win) * (odds - 1) + P(push) * 0 - P(lose)
 
 球场图和 xT 图依赖事件级数据，优先级放到后面。
 
-## 5. 配置文件设计
+## 5. 市场数据源设计
 
-### 5.1 训练配置
+### 5.1 为什么要单独设计 markets 层
+
+投注分析的核心不是只知道模型概率，而是比较模型概率和市场价格。让球、大小球和胜平负的赔率是 EV 和 Kelly 的必要输入。当前 `penaltyblog` 提供的是赔率分析工具和历史数据能力，不提供稳定的实时盘口抓取器。因此，市场数据源必须作为应用层的一等模块设计。
+
+### 5.2 市场数据来源分层
+
+市场数据按成熟度分四层接入：
+
+| 阶段 | 来源 | 用途 | 说明 |
+| --- | --- | --- | --- |
+| M0 | 配置文件手动输入 | 快速验证 EV/Kelly | 先保证投注价值计算逻辑正确 |
+| M1 | FootballData 历史赔率字段 | 回测 | 用历史赔率验证策略表现 |
+| M2 | 实时赔率 API 或网页抓取 | 赛前实战 | 需要额外数据源，不能假设 penaltyblog 已经提供 |
+| M3 | 截图或手动表格解析 | 兜底 | 用于你上传盘口截图或临时盘口表 |
+
+M0 和 M1 是近期重点。M2 需要单独调研数据源，例如付费 Odds API、交易所 API、博彩公司 API 或可抓取网页。M3 可以在图像识别或人工结构化输入稳定后再做。
+
+### 5.3 标准市场结构
+
+应用层内部统一用结构化市场对象表示盘口和赔率。
+
+1X2 示例：
+
+```json
+{"type": "1x2", "home": 1.80, "draw": 3.80, "away": 4.50}
+```
+
+大小球示例：
+
+```json
+{"type": "total", "line": 2.75, "over": 2.05, "under": 1.82}
+```
+
+亚洲让球示例：
+
+```json
+{"type": "asian_handicap", "side": "home", "line": -1.0, "odds": 1.92}
+```
+
+这里统一采用 penaltyblog 标准：`side = home, line = -1.0` 表示主队让 1 球；`side = home, line = 0.5` 表示主队受让 0.5。
+
+### 5.4 实时赔率接入原则
+
+实时赔率接入必须遵守三个原则。
+
+第一，市场数据源和预测模型解耦。模型负责生成概率，市场模块负责获取盘口和赔率，投注模块负责计算价值。不要把网页抓取逻辑写进模型层。
+
+第二，所有实时赔率都要保存快照，包括抓取时间、来源、盘口线、赔率和可能的水位格式。没有快照就无法复盘和回测。
+
+第三，实时赔率接入必须有兜底。外部盘口网站可能反爬、改版或限流，所以配置文件输入和手动结构化输入要长期保留。
+
+## 6. 配置文件设计
+
+### 6.1 训练配置
 
 `configs/training/epl.json` 示例：
 
@@ -253,13 +316,14 @@ EV = P(win) * (odds - 1) + P(push) * 0 - P(lose)
 }
 ```
 
-### 5.2 批量预测配置
+### 6.2 批量预测配置
 
 `configs/predictions/epl_matches.json` 示例：
 
 ```json
 {
   "model": "artifacts/models/epl_2025_2026_bundle.pkl",
+  "market_source": "config",
   "report_out": "artifacts/reports/epl_predictions.json",
   "fixtures": [
     {
@@ -282,7 +346,9 @@ EV = P(win) * (odds - 1) + P(push) * 0 - P(lose)
 }
 ```
 
-### 5.3 回测配置
+后续当接入实时市场数据源时，`market_source` 可以改为 `football_data_history`、`odds_api`、`web_scraper` 或 `screenshot`。
+
+### 6.3 回测配置
 
 `configs/backtest/epl_value_bets.json` 示例：
 
@@ -290,6 +356,7 @@ EV = P(win) * (odds - 1) + P(push) * 0 - P(lose)
 {
   "competition": "ENG Premier League",
   "season": "2024-2025",
+  "market_source": "football_data_history",
   "start_date": "2024-08-01",
   "end_date": "2025-05-31",
   "initial_bankroll": 1000,
@@ -302,7 +369,7 @@ EV = P(win) * (odds - 1) + P(push) * 0 - P(lose)
 }
 ```
 
-## 6. 开发优先级
+## 7. 开发优先级
 
 ### P0：应用层骨架
 
@@ -315,11 +382,11 @@ python -m penaltysoccer.cli.main train --config configs/training/epl.json
 python -m penaltysoccer.cli.main predict --config configs/predictions/epl_matches.json
 ```
 
-### P1：投注 EV 和 Kelly
+### P1：市场数据层、投注 EV 和 Kelly
 
-接入 1X2、大小球、亚洲让球的 EV、edge 和 Kelly 输出。这一步完成后，系统才真正具备投注分析能力。
+同时接入市场数据标准化、1X2、大小球、亚洲让球的 EV、edge 和 Kelly 输出。这一步完成后，系统才真正具备投注分析能力。
 
-验收标准：预测报告中每个输入盘口都有模型概率、赔率、隐含概率、EV、edge、Kelly 和是否 value bet。
+验收标准：预测报告中每个输入盘口都有市场来源、抓取或配置时间、模型概率、赔率、隐含概率、EV、edge、Kelly 和是否 value bet。M0 配置文件输入必须先跑通，M1 FootballData 历史赔率解析用于回测。
 
 ### P2：批量预测
 
@@ -351,7 +418,13 @@ python -m penaltysoccer.cli.main predict --config configs/predictions/epl_matche
 
 在有稳定事件级数据后接入 MatchFlow 和 XTModel。FBRef 可作为可选增强数据源，不能作为核心流程强依赖。
 
-## 7. 数据泄漏要求
+### P8：实时赔率自动抓取
+
+在 M0 和 M1 稳定后，单独调研并接入 M2 实时盘口源。这个阶段可以新增 `penaltysoccer/data/market_sources/`，分别实现不同来源的 adapter。
+
+验收标准：输入比赛后，系统可以自动获得至少一种来源的赛前 1X2、大小球和亚洲让球盘口快照，并保存到 `artifacts/reports/market_snapshots/`。
+
+## 8. 数据泄漏要求
 
 任何真实赛前预测和回测都必须避免未来数据泄漏。
 
@@ -364,11 +437,12 @@ ClubElo 使用比赛日前日期
 赔率使用赛前可获得赔率
 回测每个比赛日只能使用当日之前的数据训练模型
 禁止使用赛后统计作为赛前输入
+市场快照必须记录获取时间
 ```
 
 当前可以先不实现 `cutoff-date`，但回测模块开发时必须把这一点作为核心要求。
 
-## 8. 近期开发任务拆分
+## 9. 近期开发任务拆分
 
 第一步，创建应用层目录和基础文件，提交空包结构、配置目录和 README 注释。
 
@@ -376,15 +450,21 @@ ClubElo 使用比赛日前日期
 
 第三步，新增 `predict` 配置文件入口，让系统从 JSON 读取比赛，而不是靠命令行传一场比赛。
 
-第四步，接入 EV 和 Kelly，优先支持 1X2、大小球和亚洲让球。
+第四步，建立 `data/markets.py`，先支持配置文件市场数据，并统一 1X2、大小球、亚洲让球结构。
 
-第五步，做批量预测和 JSON 报告。
+第五步，接入 EV 和 Kelly，优先支持配置文件中的 1X2、大小球和亚洲让球。
 
-第六步，新增 GitHub Actions。
+第六步，做批量预测和 JSON 报告。
 
-第七步，开始回测模块。
+第七步，解析 FootballData 历史赔率字段，用于回测阶段。
 
-## 9. 与 full_predict.py 的关系
+第八步，新增 GitHub Actions。
+
+第九步，开始回测模块。
+
+第十步，再调研实时赔率 API、网页抓取或截图解析。
+
+## 10. 与 full_predict.py 的关系
 
 从本次设计更新开始，`full_predict.py` 不再承担新增功能。它保留在 `experiments/` 目录中，仅作为早期实验记录。
 
@@ -398,8 +478,8 @@ ClubElo 使用比赛日前日期
 或者改为调用 penaltysoccer.cli 的简单包装
 ```
 
-## 10. 下一步
+## 11. 下一步
 
 下一步直接创建应用层骨架，先实现 P0。
 
-P0 的目标不是一次性实现所有高级能力，而是把项目从实验脚本正式转向可维护的应用结构。完成 P0 后，再进入 P1 的投注 EV 和 Kelly。
+P0 的目标不是一次性实现所有高级能力，而是把项目从实验脚本正式转向可维护的应用结构。完成 P0 后，进入 P1 的市场数据层、EV 和 Kelly。
