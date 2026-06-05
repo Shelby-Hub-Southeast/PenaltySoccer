@@ -1,0 +1,1 @@
+"""Scoreline heatmap generation placeholder."""
