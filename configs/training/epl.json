@@ -1,0 +1,9 @@
+{
+  "competition": "ENG Premier League",
+  "season": "2025-2026",
+  "models": ["dc", "poisson", "bivariate"],
+  "xi": 0.001,
+  "use_understat": true,
+  "use_clubelo": true,
+  "model_out": "artifacts/models/epl_2025_2026_bundle.pkl"
+}
