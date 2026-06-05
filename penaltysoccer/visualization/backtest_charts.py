@@ -1,0 +1,1 @@
+"""Backtest chart generation placeholder."""
