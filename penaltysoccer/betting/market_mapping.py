@@ -21,6 +21,7 @@ def analyze_market_book(
     min_ev: float = 0.0,
     kelly_fraction_multiplier: float = 0.25,
     max_kelly: float | None = 0.03,
+    min_edge: float = 0.0,
 ) -> list[BetAnalysis]:
     """Analyze all available market prices against an ensemble prediction.
 
@@ -35,9 +36,9 @@ def analyze_market_book(
         h, d, a = prediction["home_draw_away"]
         analyses.extend(
             [
-                analyze_binary_market("1x2", "home", market.home, h, market.source, market.captured_at, min_ev, kelly_fraction_multiplier, max_kelly),
-                analyze_binary_market("1x2", "draw", market.draw, d, market.source, market.captured_at, min_ev, kelly_fraction_multiplier, max_kelly),
-                analyze_binary_market("1x2", "away", market.away, a, market.source, market.captured_at, min_ev, kelly_fraction_multiplier, max_kelly),
+                analyze_binary_market("1x2", "home", market.home, h, market.source, market.captured_at, min_ev, kelly_fraction_multiplier, max_kelly, min_edge, market.bookmaker),
+                analyze_binary_market("1x2", "draw", market.draw, d, market.source, market.captured_at, min_ev, kelly_fraction_multiplier, max_kelly, min_edge, market.bookmaker),
+                analyze_binary_market("1x2", "away", market.away, a, market.source, market.captured_at, min_ev, kelly_fraction_multiplier, max_kelly, min_edge, market.bookmaker),
             ]
         )
 
@@ -59,6 +60,8 @@ def analyze_market_book(
                     min_ev,
                     kelly_fraction_multiplier,
                     max_kelly,
+                    min_edge,
+                    market.bookmaker,
                 )
             )
         if market.under:
@@ -75,6 +78,8 @@ def analyze_market_book(
                     min_ev,
                     kelly_fraction_multiplier,
                     max_kelly,
+                    min_edge,
+                    market.bookmaker,
                 )
             )
 
@@ -97,6 +102,8 @@ def analyze_market_book(
                 min_ev,
                 kelly_fraction_multiplier,
                 max_kelly,
+                min_edge,
+                market.bookmaker,
             )
         )
 
