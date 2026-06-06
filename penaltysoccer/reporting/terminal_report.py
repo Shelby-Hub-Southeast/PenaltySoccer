@@ -29,6 +29,12 @@ def best_value_bet(report: FixturePredictionReport) -> str:
     return f"{item['market_type']} {item['selection']}{line}"
 
 
+def value_rule(item: dict[str, Any]) -> str:
+    """Return the value rule used for a betting-analysis row."""
+
+    return "EV+Kelly+RawEdge" if item.get("edge_filter_applied", True) else "EV+Kelly"
+
+
 def print_section(title: str) -> None:
     print("\n" + "=" * 88)
     print(title)
@@ -52,6 +58,8 @@ def print_prediction_report(report: FixturePredictionReport) -> None:
     print_section(f"Prediction: {fixture.home} vs {fixture.away}")
     print(f"Models: {', '.join(report.metadata.get('models', []))}")
     print(f"Training matches: {report.metadata.get('training_match_count')}")
+    if report.metadata.get("cutoff_date"):
+        print(f"Cutoff date: {report.metadata.get('cutoff_date')}")
 
     print_section("1X2")
     print_table(
@@ -94,15 +102,16 @@ def print_prediction_report(report: FixturePredictionReport) -> None:
                     "Win": fmt_pct(item["win_probability"]),
                     "Push": fmt_pct(item["push_probability"]),
                     "Lose": fmt_pct(item["lose_probability"]),
-                    "Edge": fmt_pct(item["edge"]),
+                    "Raw Edge": fmt_pct(item["edge"]),
                     "EV": fmt_num(item["expected_value"], 4),
                     "Kelly": fmt_pct(item["suggested_kelly"]),
+                    "Rule": value_rule(item),
                     "Source": item.get("source", ""),
                     "Book": item.get("bookmaker") or "-",
                     "Value": "yes" if item["is_value_bet"] else "no",
                 }
             )
-        print_table(rows, ["Market", "Selection", "Line", "Odds", "Win", "Push", "Lose", "Edge", "EV", "Kelly", "Source", "Book", "Value"])
+        print_table(rows, ["Market", "Selection", "Line", "Odds", "Win", "Push", "Lose", "Raw Edge", "EV", "Kelly", "Rule", "Source", "Book", "Value"])
 
     if report.context.clubelo.get("available"):
         print_section("ClubElo")
