@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from penaltysoccer.prediction.report_schema import FixturePredictionReport
-from penaltysoccer.reporting.terminal_report import best_ev, best_value_bet, fmt_num, fmt_pct
+from penaltysoccer.reporting.terminal_report import best_ev, best_value_bet, fmt_num, fmt_pct, value_rule
 
 
 def _market_line(value: float | None) -> str:
@@ -20,6 +20,8 @@ def render_report_markdown(report: FixturePredictionReport) -> str:
     lines.append("")
     lines.append(f"Models: {', '.join(report.metadata.get('models', []))}")
     lines.append(f"Training matches: {report.metadata.get('training_match_count')}")
+    if report.metadata.get("cutoff_date"):
+        lines.append(f"Cutoff date: {report.metadata.get('cutoff_date')}")
     lines.append("")
     lines.append("### 1X2")
     lines.append("| Outcome | Probability |")
@@ -52,8 +54,8 @@ def render_report_markdown(report: FixturePredictionReport) -> str:
 
     if report.betting_analysis:
         lines.append("### Betting value analysis")
-        lines.append("| Market | Selection | Line | Odds | Win | Push | Lose | Edge | EV | Kelly | Source | Book | Value |")
-        lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |")
+        lines.append("| Market | Selection | Line | Odds | Win | Push | Lose | Raw Edge | EV | Kelly | Rule | Source | Book | Value |")
+        lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |")
         for item in report.betting_analysis:
             lines.append(
                 "| "
@@ -69,6 +71,7 @@ def render_report_markdown(report: FixturePredictionReport) -> str:
                         fmt_pct(item["edge"]),
                         fmt_num(item["expected_value"], 4),
                         fmt_pct(item["suggested_kelly"]),
+                        value_rule(item),
                         str(item.get("source", "")),
                         str(item.get("bookmaker") or "-"),
                         "yes" if item["is_value_bet"] else "no",
