@@ -2,9 +2,12 @@
   "model": "artifacts/models/epl_2025_2026_bundle.pkl",
   "market_source": "config",
   "report_out": "artifacts/reports/epl_predictions.json",
+  "markdown_out": "artifacts/reports/epl_predictions.md",
   "min_ev": 0.0,
+  "min_edge": 0.0,
   "kelly_fraction": 0.25,
   "max_kelly": 0.03,
+  "sort_by": "value_bets",
   "totals": [2.0, 2.25, 2.5, 2.75, 3.0, 3.25],
   "handicaps": [-1.5, -1.25, -1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5],
   "fixtures": [
@@ -12,6 +15,7 @@
       "home": "Arsenal",
       "away": "Chelsea",
       "markets": {
+        "bookmaker": "sample-book",
         "1x2": {"home": 1.80, "draw": 3.80, "away": 4.50},
         "totals": [
           {"line": 2.5, "over": 1.91, "under": 1.95},
@@ -21,6 +25,22 @@
           {"side": "home", "line": -0.5, "odds": 1.85},
           {"side": "home", "line": -1.0, "odds": 1.92},
           {"side": "away", "line": 1.0, "odds": 1.95}
+        ]
+      }
+    },
+    {
+      "home": "Liverpool",
+      "away": "Tottenham",
+      "markets": {
+        "bookmaker": "sample-book",
+        "1x2": {"home": 1.70, "draw": 4.10, "away": 4.80},
+        "totals": [
+          {"line": 2.75, "over": 1.90, "under": 1.96},
+          {"line": 3.0, "over": 2.10, "under": 1.78}
+        ],
+        "asian_handicap": [
+          {"side": "home", "line": -0.75, "odds": 1.92},
+          {"side": "away", "line": 0.75, "odds": 1.94}
         ]
       }
     }
