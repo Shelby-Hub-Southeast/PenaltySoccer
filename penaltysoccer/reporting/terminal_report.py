@@ -15,6 +15,20 @@ def fmt_num(value: float | None, digits: int = 3) -> str:
     return "-" if value is None else f"{value:.{digits}f}"
 
 
+def best_ev(report: FixturePredictionReport) -> float | None:
+    values = [float(item["expected_value"]) for item in report.betting_analysis]
+    return max(values) if values else None
+
+
+def best_value_bet(report: FixturePredictionReport) -> str:
+    value_items = [item for item in report.betting_analysis if item["is_value_bet"]]
+    if not value_items:
+        return "-"
+    item = max(value_items, key=lambda row: float(row["expected_value"]))
+    line = "" if item["line"] is None else f" {float(item['line']):g}"
+    return f"{item['market_type']} {item['selection']}{line}"
+
+
 def print_section(title: str) -> None:
     print("\n" + "=" * 88)
     print(title)
@@ -77,13 +91,18 @@ def print_prediction_report(report: FixturePredictionReport) -> None:
                     "Selection": item["selection"],
                     "Line": "" if item["line"] is None else f"{float(item['line']):g}",
                     "Odds": fmt_num(item["odds"], 2),
-                    "Model P": fmt_pct(item["win_probability"]),
+                    "Win": fmt_pct(item["win_probability"]),
+                    "Push": fmt_pct(item["push_probability"]),
+                    "Lose": fmt_pct(item["lose_probability"]),
+                    "Edge": fmt_pct(item["edge"]),
                     "EV": fmt_num(item["expected_value"], 4),
                     "Kelly": fmt_pct(item["suggested_kelly"]),
+                    "Source": item.get("source", ""),
+                    "Book": item.get("bookmaker") or "-",
                     "Value": "yes" if item["is_value_bet"] else "no",
                 }
             )
-        print_table(rows, ["Market", "Selection", "Line", "Odds", "Model P", "EV", "Kelly", "Value"])
+        print_table(rows, ["Market", "Selection", "Line", "Odds", "Win", "Push", "Lose", "Edge", "EV", "Kelly", "Source", "Book", "Value"])
 
     if report.context.clubelo.get("available"):
         print_section("ClubElo")
@@ -110,6 +129,8 @@ def print_reports_summary(reports: list[FixturePredictionReport]) -> None:
                 "Away": fmt_pct(report.summary.away_win),
                 "xG": f"{fmt_num(report.summary.home_goal_expectation)}-{fmt_num(report.summary.away_goal_expectation)}",
                 "Value bets": str(sum(1 for item in report.betting_analysis if item["is_value_bet"])),
+                "Best EV": fmt_num(best_ev(report), 4),
+                "Best value": best_value_bet(report),
             }
         )
-    print_table(rows, ["Fixture", "Home", "Draw", "Away", "xG", "Value bets"])
+    print_table(rows, ["Fixture", "Home", "Draw", "Away", "xG", "Value bets", "Best EV", "Best value"])
