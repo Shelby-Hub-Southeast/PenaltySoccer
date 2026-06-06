@@ -60,6 +60,7 @@ def train_model_bundle(config: dict[str, Any]) -> ModelBundle:
 
     competition = config["competition"]
     season = config["season"]
+    cutoff_date = config.get("cutoff_date")
     warnings: list[str] = []
     loaded = load_all_sources(
         competition=competition,
@@ -67,6 +68,7 @@ def train_model_bundle(config: dict[str, Any]) -> ModelBundle:
         use_understat=bool(config.get("use_understat", True)),
         use_clubelo=bool(config.get("use_clubelo", True)),
         elo_date=config.get("elo_date"),
+        cutoff_date=cutoff_date,
     )
     warnings.extend(loaded.warnings)
     model_names = list(config.get("models") or DEFAULT_MODELS)
@@ -77,6 +79,7 @@ def train_model_bundle(config: dict[str, Any]) -> ModelBundle:
         "competition": competition,
         "season": season,
         "trained_at": utc_now_iso(),
+        "cutoff_date": cutoff_date,
         "training_match_count": int(len(loaded.football_data)),
         "training_start_date": loaded.football_data["date"].min().date().isoformat(),
         "training_end_date": loaded.football_data["date"].max().date().isoformat(),
@@ -84,7 +87,7 @@ def train_model_bundle(config: dict[str, Any]) -> ModelBundle:
         "xi": xi,
         "used_understat": loaded.understat_data is not None,
         "used_clubelo": loaded.clubelo_data is not None,
-        "clubelo_date": config.get("elo_date"),
+        "clubelo_date": config.get("elo_date") or cutoff_date,
         "application_layer": "penaltysoccer",
     }
     return ModelBundle(
