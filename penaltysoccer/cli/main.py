@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from penaltysoccer.data.team_names import list_known_teams
 from penaltysoccer.models.persistence import load_bundle, save_bundle
 from penaltysoccer.models.training import train_model_bundle
 from penaltysoccer.prediction.batch import predict_batch_from_config
@@ -20,8 +21,27 @@ def load_json(path: str | Path) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def apply_prediction_overrides(config: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    """Return a config copy with CLI prediction overrides applied."""
+
+    updated = dict(config)
+    for arg_name, config_key in [
+        ("min_ev", "min_ev"),
+        ("min_edge", "min_edge"),
+        ("kelly_fraction", "kelly_fraction"),
+        ("max_kelly", "max_kelly"),
+        ("sort_by", "sort_by"),
+    ]:
+        value = getattr(args, arg_name, None)
+        if value is not None:
+            updated[config_key] = value
+    return updated
+
+
 def command_train(args: argparse.Namespace) -> int:
     config = load_json(args.config)
+    if args.cutoff_date:
+        config = {**config, "cutoff_date": args.cutoff_date}
     bundle = train_model_bundle(config)
     model_out = args.model_out or config.get("model_out")
     if not model_out:
@@ -30,6 +50,8 @@ def command_train(args: argparse.Namespace) -> int:
     print(f"Saved model bundle to: {model_out}")
     print(f"Models trained: {', '.join(bundle.models.keys())}")
     print(f"Training matches: {len(bundle.football_data)}")
+    if bundle.metadata.get("cutoff_date"):
+        print(f"Cutoff date: {bundle.metadata['cutoff_date']}")
     if bundle.warnings:
         print("Warnings:")
         for warning in bundle.warnings:
@@ -38,7 +60,7 @@ def command_train(args: argparse.Namespace) -> int:
 
 
 def command_predict(args: argparse.Namespace) -> int:
-    config = load_json(args.config)
+    config = apply_prediction_overrides(load_json(args.config), args)
     model_path = args.model or config.get("model")
     if not model_path:
         raise ValueError("Model path is required via --model or config.model")
@@ -61,6 +83,20 @@ def command_predict(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_teams(args: argparse.Namespace) -> int:
+    """Print known teams in a saved model bundle."""
+
+    bundle = load_bundle(args.model)
+    teams = list_known_teams(bundle.football_data)
+    if args.query:
+        q = args.query.lower()
+        teams = [team for team in teams if q in team.lower()]
+    for team in teams:
+        print(team)
+    print(f"Total teams: {len(teams)}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="PenaltySoccer application-layer CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -68,6 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     train = subparsers.add_parser("train", help="Train models from a training config")
     train.add_argument("--config", required=True, help="Training config JSON path")
     train.add_argument("--model-out", default=None, help="Override model output path")
+    train.add_argument("--cutoff-date", default=None, help="Use only matches before this date for training/context data")
     train.set_defaults(func=command_train)
 
     predict = subparsers.add_parser("predict", help="Predict fixtures from a prediction config")
@@ -75,8 +112,18 @@ def build_parser() -> argparse.ArgumentParser:
     predict.add_argument("--model", default=None, help="Override model bundle path")
     predict.add_argument("--report-out", default=None, help="Override report output JSON path")
     predict.add_argument("--markdown-out", default=None, help="Override report output Markdown path")
+    predict.add_argument("--min-ev", type=float, default=None, help="Override minimum EV threshold")
+    predict.add_argument("--min-edge", type=float, default=None, help="Override minimum raw-edge threshold for binary markets")
+    predict.add_argument("--kelly-fraction", type=float, default=None, help="Override fractional Kelly multiplier")
+    predict.add_argument("--max-kelly", type=float, default=None, help="Override maximum suggested Kelly fraction")
+    predict.add_argument("--sort-by", default=None, choices=["input", "value_bets", "best_ev", "home_win", "away_win"], help="Override batch summary sorting")
     predict.add_argument("--verbose", action="store_true", help="Print full report for every fixture")
     predict.set_defaults(func=command_predict)
+
+    teams = subparsers.add_parser("teams", help="List teams available in a model bundle")
+    teams.add_argument("--model", required=True, help="Model bundle path")
+    teams.add_argument("--query", default=None, help="Optional substring filter")
+    teams.set_defaults(func=command_teams)
 
     return parser
 
