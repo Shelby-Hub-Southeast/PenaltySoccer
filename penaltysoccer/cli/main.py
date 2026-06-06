@@ -12,6 +12,7 @@ from penaltysoccer.models.persistence import load_bundle, save_bundle
 from penaltysoccer.models.training import train_model_bundle
 from penaltysoccer.prediction.batch import predict_batch_from_config
 from penaltysoccer.reporting.json_report import save_reports_json
+from penaltysoccer.reporting.markdown_report import save_reports_markdown
 from penaltysoccer.reporting.terminal_report import print_prediction_report, print_reports_summary
 
 
@@ -47,10 +48,16 @@ def command_predict(args: argparse.Namespace) -> int:
     if len(reports) == 1 or args.verbose:
         for report in reports:
             print_prediction_report(report)
+
     report_out = args.report_out or config.get("report_out")
     if report_out:
         save_reports_json(reports, report_out)
         print(f"Saved report JSON to: {report_out}")
+
+    markdown_out = args.markdown_out or config.get("markdown_out")
+    if markdown_out:
+        save_reports_markdown(reports, markdown_out)
+        print(f"Saved report Markdown to: {markdown_out}")
     return 0
 
 
@@ -67,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     predict.add_argument("--config", required=True, help="Prediction config JSON path")
     predict.add_argument("--model", default=None, help="Override model bundle path")
     predict.add_argument("--report-out", default=None, help="Override report output JSON path")
+    predict.add_argument("--markdown-out", default=None, help="Override report output Markdown path")
     predict.add_argument("--verbose", action="store_true", help="Print full report for every fixture")
     predict.set_defaults(func=command_predict)
 
