@@ -151,6 +151,7 @@ def predict_fixture(
     min_ev: float = 0.0,
     kelly_fraction_multiplier: float = 0.25,
     max_kelly: float | None = 0.03,
+    min_edge: float = 0.0,
 ) -> FixturePredictionReport:
     teams = list_known_teams(bundle.football_data)
     assert_team_known(fixture.home, teams, "home team")
@@ -181,6 +182,7 @@ def predict_fixture(
             min_ev=min_ev,
             kelly_fraction_multiplier=kelly_fraction_multiplier,
             max_kelly=max_kelly,
+            min_edge=min_edge,
         )
     ]
 
