@@ -29,6 +29,7 @@ class BetAnalysis:
     min_edge: float = 0.0
     kelly_fraction_multiplier: float = 0.25
     max_kelly: float | None = 0.03
+    edge_filter_applied: bool = True
 
     def to_dict(self) -> dict[str, float | str | bool | None]:
         return asdict(self)
@@ -53,6 +54,10 @@ def analyze_push_market(
 
     EV is expressed per 1 unit stake. For markets with a push probability,
     pushes return stake and contribute zero profit or loss.
+
+    The plain edge metric is ``P(win) - 1 / odds``. That is appropriate for
+    binary markets, but it can reject positive-EV markets with push protection.
+    Therefore edge filtering is applied only when push probability is zero.
     """
 
     p_win = float(win_probability)
@@ -67,7 +72,11 @@ def analyze_push_market(
     ev = p_win * (decimal_odds - 1.0) - p_lose
     full_kelly = kelly_fraction(p_win, decimal_odds, p_lose)
     suggested = fractional_kelly(full_kelly, kelly_fraction_multiplier, max_kelly)
-    is_value = ev > min_ev and edge > min_edge and suggested > 0
+
+    edge_filter_applied = p_push <= 1e-12
+    passes_edge = edge > min_edge if edge_filter_applied else True
+    is_value = ev > min_ev and passes_edge and suggested > 0
+
     return BetAnalysis(
         market_type=market_type,
         selection=selection,
@@ -89,6 +98,7 @@ def analyze_push_market(
         min_edge=min_edge,
         kelly_fraction_multiplier=kelly_fraction_multiplier,
         max_kelly=max_kelly,
+        edge_filter_applied=edge_filter_applied,
     )
 
 
