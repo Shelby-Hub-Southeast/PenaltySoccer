@@ -86,6 +86,7 @@ def train_model_bundle(config: dict[str, Any], progress: ProgressCallback | None
         cutoff_date=cutoff_date,
         progress=progress,
         suppress_dataframe_warnings=bool(config.get("suppress_dataframe_warnings", True)),
+        clubelo_timeout=float(config.get("clubelo_timeout", 20.0)),
     )
     warnings.extend(loaded.warnings)
     model_names = list(config.get("models") or DEFAULT_MODELS)
@@ -115,6 +116,7 @@ def train_model_bundle(config: dict[str, Any], progress: ProgressCallback | None
         "used_understat": loaded.understat_data is not None,
         "used_clubelo": loaded.clubelo_data is not None,
         "clubelo_date": config.get("elo_date") or cutoff_date,
+        "clubelo_timeout": float(config.get("clubelo_timeout", 20.0)),
         "application_layer": "penaltysoccer",
     }
     _progress(progress, "Training bundle ready")
