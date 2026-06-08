@@ -54,6 +54,8 @@ def apply_training_overrides(config: dict[str, Any], args: argparse.Namespace) -
         updated["use_clubelo"] = False
     if args.min_training_matches is not None:
         updated["min_training_matches"] = args.min_training_matches
+    if args.clubelo_timeout is not None:
+        updated["clubelo_timeout"] = args.clubelo_timeout
     if args.show_dataframe_warnings:
         updated["suppress_dataframe_warnings"] = False
     else:
@@ -137,6 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--cutoff-date", default=None, help="Use only matches before this date for training/context data")
     train.add_argument("--no-understat", action="store_true", help="Disable Understat context loading for this training run")
     train.add_argument("--no-clubelo", action="store_true", help="Disable ClubElo context loading for this training run")
+    train.add_argument("--clubelo-timeout", type=float, default=None, help="Seconds to wait for each ClubElo endpoint before skipping it")
     train.add_argument("--min-training-matches", type=int, default=None, help="Minimum completed matches required after filtering")
     train.add_argument("--show-dataframe-warnings", action="store_true", help="Show pandas DataFrame fragmentation warnings from scrapers")
     train.set_defaults(func=command_train)
