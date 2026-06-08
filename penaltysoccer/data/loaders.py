@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import date as date_cls
+import io
 import warnings as py_warnings
 
 import pandas as pd
 from pandas.errors import PerformanceWarning
 import penaltyblog as pb
+from penaltyblog.scrapers.common import sanitize_columns
+import requests
 
 from .fixtures import normalize_fixture_frame
 
@@ -111,26 +115,79 @@ def load_understat(
         return None
 
 
+def _clubelo_date_path(as_of: str | None) -> str:
+    if as_of is None:
+        today = date_cls.today()
+        return f"{today.year}-{today.month}-{today.day}"
+    parsed = pd.to_datetime(as_of, errors="raise").date()
+    return f"{parsed.year}-{parsed.month}-{parsed.day}"
+
+
+def _parse_clubelo_csv(content: str) -> pd.DataFrame:
+    df = pd.read_csv(io.StringIO(content))
+    if df.empty:
+        raise ValueError("ClubElo returned an empty CSV")
+    df = df.rename(columns={"Club": "team", "Elo": "elo"})
+    df = sanitize_columns(df)
+    if "team" not in df.columns or "elo" not in df.columns:
+        raise ValueError(f"ClubElo CSV missing required columns. Available columns: {list(df.columns)}")
+    if "from" in df.columns:
+        df["from"] = pd.to_datetime(df["from"], errors="coerce")
+    if "to" in df.columns:
+        df["to"] = pd.to_datetime(df["to"], errors="coerce")
+    return df.sort_values("elo", ascending=False).reset_index(drop=True)
+
+
+def _download_clubelo_csv(url: str, timeout: float) -> str:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "Chrome/102.0.0.0 Safari/537.36"
+        )
+    }
+    response = requests.get(url, headers=headers, timeout=timeout)
+    response.raise_for_status()
+    if not response.text.strip():
+        raise ValueError("empty response")
+    return response.text
+
+
 def load_clubelo(
     as_of: str | None = None,
     warnings: list[str] | None = None,
     progress: ProgressCallback | None = None,
+    timeout: float = 20.0,
 ) -> pd.DataFrame | None:
-    """Load ClubElo ratings, returning None when the source fails."""
+    """Load ClubElo ratings, returning None when the source fails.
+
+    The upstream penaltyblog ClubElo scraper uses HTTP without a request timeout,
+    which can block indefinitely when api.clubelo.com accepts the connection but
+    sends no data. The application layer uses explicit timeouts and tries HTTPS
+    before HTTP so training can continue with a clear warning when ClubElo is
+    unreachable from the current environment.
+    """
 
     sink = warnings if warnings is not None else []
     label = as_of or "latest"
-    _progress(progress, f"Loading ClubElo ratings: {label}")
-    try:
-        scraper = pb.scrapers.ClubElo()
-        df = scraper.get_elo_by_date(as_of).reset_index()
-        _progress(progress, f"ClubElo loaded: {len(df)} rows")
-        return df
-    except Exception as exc:
-        message = f"ClubElo skipped: {type(exc).__name__}: {exc}"
-        _progress(progress, message)
-        sink.append(message)
-        return None
+    path = _clubelo_date_path(as_of)
+    urls = [f"https://api.clubelo.com/{path}", f"http://api.clubelo.com/{path}"]
+    _progress(progress, f"Loading ClubElo ratings: {label} with {timeout:g}s timeout")
+    errors: list[str] = []
+    for url in urls:
+        try:
+            _progress(progress, f"Trying ClubElo endpoint: {url}")
+            content = _download_clubelo_csv(url, timeout=timeout)
+            df = _parse_clubelo_csv(content)
+            _progress(progress, f"ClubElo loaded: {len(df)} rows from {url}")
+            return df
+        except Exception as exc:
+            errors.append(f"{url} -> {type(exc).__name__}: {exc}")
+            _progress(progress, f"ClubElo endpoint failed: {type(exc).__name__}: {exc}")
+
+    message = "ClubElo skipped after endpoint failures: " + " | ".join(errors)
+    _progress(progress, message)
+    sink.append(message)
+    return None
 
 
 def load_all_sources(
@@ -142,6 +199,7 @@ def load_all_sources(
     cutoff_date: str | None = None,
     progress: ProgressCallback | None = None,
     suppress_dataframe_warnings: bool = True,
+    clubelo_timeout: float = 20.0,
 ) -> LoadedData:
     """Load the standard prediction data bundle."""
 
@@ -168,7 +226,7 @@ def load_all_sources(
 
     clubelo_as_of = elo_date or cutoff_date
     if use_clubelo:
-        clubelo_data = load_clubelo(clubelo_as_of, warnings, progress=progress)
+        clubelo_data = load_clubelo(clubelo_as_of, warnings, progress=progress, timeout=clubelo_timeout)
     else:
         _progress(progress, "ClubElo disabled by config or CLI flag")
         clubelo_data = None
